@@ -5,16 +5,23 @@
  * ============================================================================
  */
 
-// ====== PEGUE AQUÍ, reemplazando las 8 líneas siguientes, el bloque que le muestra Firebase ======
+// Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "PEGUE-AQUI",
-  authDomain: "PEGUE-AQUI",
-  projectId: "PEGUE-AQUI",
-  storageBucket: "PEGUE-AQUI",
-  messagingSenderId: "PEGUE-AQUI",
-  appId: "PEGUE-AQUI"
+  apiKey: "AIzaSyAaMdqGDNIfD0Af2DKYlMoG_iHOlISIWvw",
+  authDomain: "avopak-estudios.firebaseapp.com",
+  projectId: "avopak-estudios",
+  storageBucket: "avopak-estudios.firebasestorage.app",
+  messagingSenderId: "498836939458",
+  appId: "1:498836939458:web:62ebd980dcb1385afe115b"
 };
-// ====== FIN DEL BLOQUE DE FIREBASE ======
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
 
 window.EST_CONFIG = {
   firebase: firebaseConfig,
