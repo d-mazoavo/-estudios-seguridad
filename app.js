@@ -6,7 +6,7 @@
    ===================================================================== */
 const APP_ID = 'AVOPAK-DSI-ESTUDIOS';
 const SCHEMA = 1;
-const VER = '1.1.0';
+const VER = '1.1.1';
 const KDF_ITER = 600000;
 const VINCULOS = ['Trabajador directo','Personal de finca','Contratista','Aspirante'];
 const TIPOS_VINC = VINCULOS.slice(0,3);
@@ -1361,7 +1361,7 @@ function imprimirInforme(id, v){
   const yn=b=>b?'Sí':'No';
   const para=t=>t?`<p>${esc(t)}</p>`:'<p class="empty">Sin anotaciones.</p>';
   const html=`<div class="rep">
-    <table class="head"><tr><td class="logo" rowspan="3"><img src="${esc(L||'img/logo-doc.png')}" alt="Avo Pak S.A.S., Dirección de Seguridad"></td><td class="title" rowspan="3">Dirección de Seguridad Integral<br>Informe de estudio de seguridad de personal${c.estudio.incluyeVisita?' con visita domiciliaria':''}</td><td class="meta">Código: ${esc(meta.codigo)}</td></tr><tr><td class="meta">Versión: ${meta.version}</td></tr><tr><td class="meta">Emisión: ${fmtDT(meta.emitido)}</td></tr></table>
+    <table class="head"><tr><td class="logo" rowspan="3"><img src="${esc(L||'logo-doc.png')}" alt="Avo Pak S.A.S., Dirección de Seguridad"></td><td class="title" rowspan="3">Dirección de Seguridad Integral<br>Informe de estudio de seguridad de personal${c.estudio.incluyeVisita?' con visita domiciliaria':''}</td><td class="meta">Código: ${esc(meta.codigo)}</td></tr><tr><td class="meta">Versión: ${meta.version}</td></tr><tr><td class="meta">Emisión: ${fmtDT(meta.emitido)}</td></tr></table>
     <div class="class">Información estrictamente confidencial. Circulación restringida.</div>
     <h3 class="bar">1. Identificación</h3>
     <table class="kv"><tr><th>Estudio</th><td>${esc(c.estudio.codigo)}; ${esc(c.estudio.tipo)}</td></tr><tr><th>Fecha de realización</th><td>${fmtD(c.estudio.fechaRealizacion)}</td></tr><tr><th>Ejecutor</th><td>${esc(c.estudio.ejecutor)}</td></tr>
@@ -1623,14 +1623,14 @@ function importar(tipo){
 async function sha256Bytes(u8){ const h=await crypto.subtle.digest('SHA-256', u8); return Array.from(new Uint8Array(h),b=>b.toString(16).padStart(2,'0')).join(''); }
 function cargarScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=()=>res(); s.onerror=()=>rej(new Error('no se pudo cargar el componente de documentos; revise la conexión e intente de nuevo')); document.head.appendChild(s); }); }
 async function libPDF(){
-  if(!(window.jspdf && window.jspdf.jsPDF)) await cargarScript('js/vendor/jspdf.umd.min.js?v='+VER);
-  if(!(window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) && typeof window.autoTable!=='function') await cargarScript('js/vendor/jspdf.plugin.autotable.min.js?v='+VER);
+  if(!(window.jspdf && window.jspdf.jsPDF)) await cargarScript('jspdf.umd.min.js?v='+VER);
+  if(!(window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) && typeof window.autoTable!=='function') await cargarScript('jspdf.plugin.autotable.min.js?v='+VER);
   return window.jspdf.jsPDF;
 }
 async function logoDoc(){
   const L=cfg().logoDoc; let u8=null, tipo='PNG';
   if(L){ const m=/^data:image\/(png|jpe?g);base64,(.*)$/i.exec(L); if(m){ u8=unb64(m[2]); tipo=/png/i.test(m[1])?'PNG':'JPEG'; } }
-  if(!u8){ const r=await fetch('img/logo-doc.png'); if(!r.ok) throw new Error('no se encontró el logotipo'); u8=new Uint8Array(await r.arrayBuffer()); tipo='PNG'; }
+  if(!u8){ const r=await fetch('logo-doc.png'); if(!r.ok) throw new Error('no se encontró el logotipo'); u8=new Uint8Array(await r.arrayBuffer()); tipo='PNG'; }
   const dim=await new Promise(res=>{ const img=new Image(); const url=URL.createObjectURL(new Blob([u8],{type:tipo==='PNG'?'image/png':'image/jpeg'})); img.onload=()=>{ res({w:img.naturalWidth, h:img.naturalHeight}); URL.revokeObjectURL(url); }; img.onerror=()=>{ res({w:640, h:566}); URL.revokeObjectURL(url); }; img.src=url; });
   return {u8, tipo, w:dim.w||640, h:dim.h||566};
 }
@@ -1957,7 +1957,7 @@ function imprimirCodigo(c){
 /* =====================================================================
    Pantallas de acceso, desbloqueo e instalación
    ===================================================================== */
-const LOCK_HEAD = `<div class="lock-logo"><img src="img/logo.png" alt="Avo Pak, Dirección de Seguridad" width="520" height="460"></div><div class="lock-brand">Avo Pak S.A.S., Dirección de Seguridad Integral</div><h1>Registro de estudios de seguridad de personal</h1>`;
+const LOCK_HEAD = `<div class="lock-logo"><img src="logo.png?v=${VER}" alt="Avo Pak, Dirección de Seguridad" width="520" height="460"></div><div class="lock-brand">Avo Pak S.A.S., Dirección de Seguridad Integral. Versión ${VER}</div><h1>Registro de estudios de seguridad de personal</h1>`;
 const LOCK_INST = `<button class="linkbtn" type="button" data-act="instalarApp" hidden>Instalar en este equipo</button>`;
 function lockErr(t){ const e=$('#lockerr'); if(e){ e.textContent=t; e.hidden=!t; } }
 function renderLock(mode, msg){
@@ -2249,8 +2249,21 @@ const tip=$('#tip');
 document.addEventListener('mouseover', e=>{ const t=e.target.closest('[data-tip]'); if(!t){ tip.hidden=true; return; } tip.textContent=t.dataset.tip; tip.hidden=false; });
 document.addEventListener('mousemove', e=>{ if(!tip.hidden){ tip.style.left=Math.min(e.clientX+12, innerWidth-tip.offsetWidth-8)+'px'; tip.style.top=(e.clientY+14)+'px'; } });
 
+/* Comprobación de la actualización: todos los archivos deben ser de la misma versión */
+function revisarArchivos(){
+  const mal=[];
+  const mv=document.querySelector('meta[name=app-version]'); if(!mv||mv.content!==VER) mal.push('index.html');
+  const cv=getComputedStyle(document.documentElement).getPropertyValue('--app-ver').replace(/["'\s]/g,''); if(cv!==VER) mal.push('app.css');
+  if(window.__diagVer!==VER) mal.push('diag.js');
+  if(!window.Nube || window.Nube.VER!==VER) mal.push('nube.js');
+  const avisar=l=>{ const el=$('#avisover'); if(!el||!l.length) return; el.innerHTML=`<strong>La actualización quedó incompleta.</strong> Faltan o son de una versión anterior: ${l.map(esc).join(', ')}. En GitHub use «Add file», «Upload files», suba de nuevo esos archivos de la versión ${VER} y recargue con Ctrl + F5.`; el.hidden=false; };
+  const img=new Image(); img.onload=()=>avisar(mal); img.onerror=()=>avisar([...mal,'logo.png']); img.src='logo.png?v='+VER;
+  return mal;
+}
+
 /* Arranque */
 (async()=>{
+  const malos=revisarArchivos(); if(malos.includes('nube.js') && !window.Nube){ renderLock('error','Falta el archivo nube.js. Vuelva a subir todos los archivos de la versión '+VER+' a GitHub.'); return; }
   if(!window.isSecureContext || !crypto.subtle){ document.body.innerHTML='<p style="padding:24px;font:16px system-ui">Este navegador no permite el cifrado necesario. Abra la aplicación desde su dirección https en Microsoft Edge o Google Chrome.</p>'; return; }
   await Store.init();
   if(!Nube.configurado()){ renderLock('config'); return; }

@@ -1,8 +1,10 @@
 AVO PAK S.A.S. — DIRECCIÓN DE SEGURIDAD INTEGRAL
-Estudios de seguridad de personal — versión en la nube (Firebase) — v1.1.0
+Estudios de seguridad de personal — versión en la nube (Firebase) — v1.1.1
 ==========================================================================
 
-QUÉ CAMBIA EN LA VERSIÓN 1.1.0
+QUÉ CAMBIA EN LA VERSIÓN 1.1.1
+- Todos los archivos van en una sola carpeta, sin subcarpetas: se suben de un solo arrastre.
+- La versión se ve en la pantalla de acceso y abajo en el menú; si falta un archivo, la aplicación lo avisa en rojo.
 - Logotipo de la Dirección de Seguridad en la aplicación, en el ícono del celular y en los documentos.
 - Personas organizadas por razón social y, dentro de cada una, en Vinculados y Aspirantes.
 - Consultas: código de verificación del certificado junto a la ubicación del soporte; se pueden editar y eliminar.
@@ -19,14 +21,15 @@ ARCHIVOS
 - Las reglas de Firestore NO cambian en esta versión y NO van en GitHub.
 
 CÓMO SUBIR ESTA VERSIÓN A GITHUB (reemplaza los archivos anteriores)
-1. Descomprima el ZIP: clic derecho sobre el archivo > «Extraer todo» > «Extraer».
+1. Descomprima el ZIP: clic derecho sobre el archivo > «Extraer todo» > «Extraer». Se abre una carpeta con 22 archivos y ninguna subcarpeta.
 2. Abra github.com/d-mazoavo/estudios-seguridad.
 3. Encima de la lista de archivos, a la derecha: botón gris «Add file» > «Upload files».
-4. En la carpeta extraída seleccione todo (Ctrl + A): index.html, config.js, sw.js, manifest.webmanifest,
-   LEEME.txt y las carpetas css, img y js. Arrástrelo al recuadro «Drag files here».
-5. Espere a que termine de cargar la lista. Abajo, botón verde «Commit changes».
+4. En la carpeta extraída presione Ctrl + A (se seleccionan los 22 archivos) y arrástrelos al recuadro «Drag files here».
+5. Espere a que aparezcan los 22 nombres en la lista. Abajo, botón verde «Commit changes».
 6. Espere 3 minutos. Abra d-mazoavo.github.io/estudios-seguridad/ y presione Ctrl + F5.
-   En el celular, cierre la aplicación y vuelva a abrirla.
+7. Comprobación: la pantalla de acceso debe decir «Versión 1.1.1» y mostrar el logotipo. Si aparece una franja roja,
+   ahí dice qué archivos faltan: súbalos de nuevo con «Add file» > «Upload files».
+Las carpetas css, js e img que quedaron de la versión anterior ya no se usan; pueden quedarse.
 
 INSTALAR EN EL CELULAR O LA TABLETA
 - Android (Chrome): abra la dirección de la aplicación > menú ⋮ > «Instalar aplicación».
