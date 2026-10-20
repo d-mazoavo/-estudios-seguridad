@@ -1,0 +1,67 @@
+AVO PAK S.A.S. — DIRECCIÓN DE SEGURIDAD INTEGRAL
+Estudios de seguridad de personal — versión en la nube (Firebase) — v1.0.0
+==========================================================================
+
+QUÉ ES
+Registro de personas, consultas de antecedentes, registros hallados, estudios y visitas de seguridad,
+con informes y bitácora encadenada. Funciona en computador y celular, con la misma información.
+
+CÓMO PROTEGE LA INFORMACIÓN
+- Cada registro se cifra en el equipo (AES-256-GCM) antes de enviarse: Firebase (Google) solo guarda texto cifrado.
+- La llave de datos solo existe en el servidor envuelta (cifrada) por la clave de cifrado y, aparte, por el
+  código de recuperación. Sin una de las dos nadie puede leer la información, tampoco el administrador del proyecto.
+- Solo la cuenta que instala la aplicación puede leer o escribir (reglas de Firestore).
+- La bitácora solo se agrega: el servidor impide modificarla o borrarla y exige que cada entrada se encadene con la anterior.
+- Los consecutivos (personas, estudios e informes) se asignan en el servidor: no se repiten entre equipos.
+- Cada equipo guarda una copia cifrada para trabajar sin conexión; los cambios se envían al volver la conexión.
+
+DOS SECRETOS DISTINTOS
+- Contraseña de acceso: entra a la cuenta. Si la olvida: "Olvidé la contraseña de acceso" (llega un enlace al correo).
+- Clave de cifrado: abre los datos. Si la olvida: "Olvidé la clave de cifrado" y el código de recuperación.
+- Si pierde la clave de cifrado Y el código de recuperación, la información no se puede recuperar.
+
+ARCHIVOS
+- firestore.rules NO va en GitHub (contiene el código de instalación). Se pega en Firebase.
+- config.js es el único archivo que se edita (bloque de configuración de Firebase).
+
+INSTALACIÓN — FIREBASE (una sola vez)
+1. Entre a https://console.firebase.google.com con la cuenta de Google de la empresa.
+   "Crear un proyecto" > nombre: avopak-estudios > desactive Google Analytics > Crear proyecto.
+2. Menú izquierdo: Compilación (Build) > Authentication > Comenzar > Correo electrónico/contraseña >
+   active solo el primer interruptor > Guardar.
+3. Authentication > pestaña Configuración (Settings) > Dominios autorizados > Agregar dominio > d-mazoavo.github.io > Agregar.
+4. Compilación > Firestore Database > Crear base de datos. Si pregunta la edición, elija Standard.
+   Ubicación: una de Estados Unidos (por ejemplo nam5). La ubicación no se puede cambiar después.
+   Elija "Comenzar en modo de producción" > Crear.
+5. Firestore Database > pestaña Reglas > borre todo el contenido > pegue todo firestore.rules > Publicar.
+6. Engranaje (arriba a la izquierda) > Configuración del proyecto > General > "Tus apps" > icono </> (Web).
+   Apodo: estudios. No marque Firebase Hosting. Registrar app. Copie el bloque "const firebaseConfig = { ... };".
+
+INSTALACIÓN — GITHUB (una sola vez)
+7. En https://github.com > botón "New" (nuevo repositorio) > Repository name: estudios-seguridad > Public > Create repository.
+8. En la página del repositorio nuevo, enlace "uploading an existing file". Arrastre TODO el contenido de la carpeta
+   descomprimida (index.html, config.js, manifest.webmanifest, sw.js, LEEME.txt y las carpetas css, js e img) > Commit changes.
+   Verifique que quedaron las carpetas css, js (con js/vendor) e img.
+9. Haga clic en config.js > icono del lápiz (Edit) > reemplace las 8 líneas entre "PEGUE AQUÍ" y "FIN DEL BLOQUE"
+   por el bloque copiado en el paso 6 > Commit changes.
+10. Settings > Pages > Source: Deploy from a branch > Branch: main, carpeta / (root) > Save.
+    En uno o dos minutos la aplicación queda en https://d-mazoavo.github.io/estudios-seguridad/
+
+PRIMER USO
+11. En la versión anterior (Registro_Estudios_Seguridad_DSI.html): Configuración > Descargar respaldo cifrado.
+12. Abra https://d-mazoavo.github.io/estudios-seguridad/ y complete "Primera instalación":
+    correo y contraseña de acceso, código de instalación (está en firestore.rules), nombre, clave de cifrado,
+    y en el punto 4 el respaldo de la versión anterior con su contraseña maestra. Instalar.
+13. Imprima o anote el código de recuperación y guárdelo en sobre cerrado, separado del computador. Entrar.
+14. Recomendado: en Firebase > Authentication > Configuración > Acciones del usuario, desactive la creación de
+    cuentas (sign-up), si su consola muestra esa opción. Las reglas ya impiden que otra cuenta lea los datos.
+15. Desde ese momento registre todo en la versión en la nube y deje de usar el archivo HTML anterior.
+16. Celular: abra la misma dirección en Chrome, entre con el correo y la contraseña, desbloquee con la clave de cifrado
+    y use "Agregar a la pantalla de inicio".
+
+RESPALDO
+Configuración > Descargar respaldo cifrado, al menos una vez al mes; guárdelo en OneDrive corporativo.
+Se abre con la clave de cifrado vigente cuando se descargó. Sirve para reinstalar en un proyecto nuevo.
+
+ACTUALIZACIONES
+Suba solo los archivos que se le entreguen, en su misma carpeta. config.js no se reemplaza.
