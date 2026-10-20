@@ -6,11 +6,15 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://*.googleapis.com; frame-src https://*.firebaseapp.com https://*.web.app; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
-<meta name="theme-color" content="#26331F">
+<meta name="theme-color" content="#4C6E45">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Estudios DSI">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="img/favicon.png">
 <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
-<link rel="stylesheet" href="css/app.css?v=1.0.0">
+<link rel="stylesheet" href="css/app.css?v=1.1.0">
 <title>Estudios de seguridad de personal</title>
 </head>
 <body>
@@ -18,13 +22,13 @@
 
 <div id="app" hidden>
   <aside class="side">
-    <div class="brand"><div class="brand-name">Avo Pak</div><div class="brand-sub">Dirección de Seguridad Integral<br>Estudios de seguridad de personal</div></div>
+    <div class="brand"><a class="brand-logo" href="#/tablero" aria-label="Tablero"><img src="img/logo.png" alt="Avo Pak, Dirección de Seguridad" width="520" height="460"></a><div class="brand-sub">Dirección de Seguridad Integral<br>Estudios de seguridad de personal</div></div>
     <nav id="nav" aria-label="Secciones">
       <a href="#/tablero" data-route="tablero">Tablero</a>
       <a href="#/personas" data-route="personas">Personas</a>
       <a href="#/vencimientos" data-route="vencimientos">Vencimientos <span class="navcount" id="navvenc" hidden></span></a>
       <a href="#/consultas" data-route="consultas">Consultas de antecedentes</a>
-      <a href="#/hallazgos" data-route="hallazgos">Registros hallados</a>
+      <a href="#/hallazgos" data-route="hallazgos">Antecedentes</a>
       <a href="#/estudios" data-route="estudios">Estudios y visitas</a>
       <a href="#/bitacora" data-route="bitacora">Bitácora</a>
       <a href="#/config" data-route="config">Configuración</a>
@@ -37,7 +41,7 @@
         <input id="gsearch" type="search" placeholder="Buscar persona por nombre, documento o código" autocomplete="off" aria-label="Buscar persona">
         <div id="gresults" class="gresults" hidden></div>
       </div>
-      <div class="top-actions"><div class="operator" id="operator"></div><button class="btn" data-act="lock" type="button">Bloquear</button></div>
+      <div class="top-actions"><button class="btn" data-act="instalarApp" type="button" hidden>Instalar app</button><div class="operator" id="operator"></div><button class="btn" data-act="lock" type="button">Bloquear</button></div>
     </header>
     <main id="main" tabindex="-1"></main>
   </div>
@@ -47,11 +51,12 @@
 <div id="toast" role="status" aria-live="polite"></div>
 <div id="tip" hidden></div>
 <div id="print-root"></div>
-<script src="config.js?v=1.0.0"></script>
-<script src="js/vendor/firebase-app-compat.js?v=1.0.0"></script>
-<script src="js/vendor/firebase-auth-compat.js?v=1.0.0"></script>
-<script src="js/vendor/firebase-firestore-compat.js?v=1.0.0"></script>
-<script src="js/nube.js?v=1.0.0"></script>
-<script src="js/app.js?v=1.0.0"></script>
+<script src="js/diag.js?v=1.1.0"></script>
+<script src="config.js?v=1.1.0"></script>
+<script src="js/vendor/firebase-app-compat.js?v=1.1.0"></script>
+<script src="js/vendor/firebase-auth-compat.js?v=1.1.0"></script>
+<script src="js/vendor/firebase-firestore-compat.js?v=1.1.0"></script>
+<script src="js/nube.js?v=1.1.0"></script>
+<script src="js/app.js?v=1.1.0"></script>
 </body>
 </html>

@@ -1,8 +1,10 @@
 /* Permite abrir la aplicación sin internet. Los datos se guardan aparte, cifrados, en el almacenamiento del navegador. */
-var VERSION = 'estudios-v1.0.0';
+var VERSION = 'estudios-v1.1.0';
 var FILES = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'css/app.css',
-  'js/vendor/firebase-app-compat.js', 'js/vendor/firebase-auth-compat.js', 'js/vendor/firebase-firestore-compat.js',
-  'js/nube.js', 'js/app.js', 'img/icon-192.png', 'img/icon-512.png', 'img/apple-touch-icon.png', 'img/favicon.png'];
+  'js/diag.js', 'js/vendor/firebase-app-compat.js', 'js/vendor/firebase-auth-compat.js', 'js/vendor/firebase-firestore-compat.js',
+  'js/vendor/jspdf.umd.min.js', 'js/vendor/jspdf.plugin.autotable.min.js',
+  'js/nube.js', 'js/app.js', 'img/logo.png', 'img/logo-doc.png', 'img/icon-192.png', 'img/icon-512.png',
+  'img/icon-maskable-192.png', 'img/icon-maskable-512.png', 'img/apple-touch-icon.png', 'img/favicon.png'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(FILES.map(function (f) { return new Request(f, { cache: 'reload' }); })); }).then(function () { return self.skipWaiting(); }));
 });

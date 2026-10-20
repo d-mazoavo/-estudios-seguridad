@@ -6,9 +6,17 @@
    ===================================================================== */
 const APP_ID = 'AVOPAK-DSI-ESTUDIOS';
 const SCHEMA = 1;
+const VER = '1.1.0';
 const KDF_ITER = 600000;
-const VINCULOS = ['Trabajador Avo Pak','Personal de finca','Contratista','Aspirante'];
-const ESTADOS_P = ['Activo','En selección','Retirado'];
+const VINCULOS = ['Trabajador directo','Personal de finca','Contratista','Aspirante'];
+const TIPOS_VINC = VINCULOS.slice(0,3);
+const VINC_ALIAS = {'Trabajador Avo Pak':'Trabajador directo'};
+const ESTADOS_P = ['Activo','En selección','Retirado','No vinculado'];
+const ESTADOS_VINC = ['Activo','Retirado'];
+const ESTADOS_ASP = ['En selección','No vinculado'];
+const TIPOS_ANT = ['Penal','Judicial','Administrativo','Infracciones de tránsito'];
+const NORMAS_SUG = ['Ley 599 de 2000, Código Penal','Ley 906 de 2004, Código de Procedimiento Penal','Ley 1952 de 2019, Código General Disciplinario','Ley 610 de 2000, responsabilidad fiscal','Ley 1801 de 2016, Código Nacional de Seguridad y Convivencia Ciudadana','Ley 769 de 2002, Código Nacional de Tránsito Terrestre'];
+const OTRAS = '__otras__';
 const TIPOS_DOC = ['CC','CE','PPT','PEP','PA','Otro'];
 const RESULTADOS = ['Sin registro','Con registro','No concluyente'];
 const TIPOS_AUT = ['General de tratamiento de datos','Específica de visita domiciliaria'];
@@ -36,10 +44,10 @@ const CHECKLIST = [
   {k:'referencias', t:'Referencias verificadas con autorización del titular'}
 ];
 const MOTIVOS_SUP = ['Vencimiento del plazo de conservación','Solicitud de supresión del titular','Registro creado por error','Otro'];
-const TIPOS_ANTECEDENTES = ['Penal','Judicial','Administrativo','Infracciones de tránsito'];
 const STATUS_RANK = {bad:3, warn:2, ok:1, na:0};
 const GLYPH = {ok:'✓', warn:'!', bad:'✕', na:'–'};
 
+const FUENTE_SIMIT = {id:'f-simit', nombre:'Federación Colombiana de Municipios: SIMIT, multas y comparendos de tránsito', obligatoria:false, activa:true};
 function defaultDB(op){
   return {
     meta:{app:APP_ID, schema:SCHEMA, creado:nowISO(), seq:{persona:0, estudio:{}, informe:{}}, ultimoRespaldo:null},
@@ -52,7 +60,8 @@ function defaultDB(op){
         {id:'f3', nombre:'Contraloría General de la República: responsabilidad fiscal', obligatoria:true, activa:true},
         {id:'f4', nombre:'Policía Nacional: Registro Nacional de Medidas Correctivas', obligatoria:false, activa:true},
         {id:'f5', nombre:'Rama Judicial: consulta de procesos', obligatoria:false, activa:true},
-        {id:'f6', nombre:'Plataforma Inspektor: listas restrictivas', obligatoria:false, activa:true}
+        {id:'f6', nombre:'Plataforma Inspektor: listas restrictivas', obligatoria:false, activa:true},
+        {...FUENTE_SIMIT}
       ],
       periodicidad:{critico:{antecedentes:12, visita:24}, general:{antecedentes:24, visita:0}},
       diasAlerta:30,
@@ -155,15 +164,17 @@ const S = {
 function freshUI(){
   return {
     tab:{anio:String(new Date().getFullYear())},
-    personas:{q:'', vinculo:'', empresa:'', critico:'', estado:'vigentes', cumpl:'', limit:300, sel:new Set()},
+    personas:{q:'', razon:prefLeer('razon',''), grupo:'vinculados', vinculo:'', critico:'', estado:'vigentes', cumpl:'', limit:300, sel:new Set()},
     consultas:{q:'', fuente:'', resultado:'', desde:'', hasta:'', anuladas:false, limit:300},
-    hallazgos:{q:'', estado:'Vigente', valoracion:'', fuente:'', limit:300},
+    hallazgos:{q:'', estado:'Vigente', tipo:'', valoracion:'', fuente:'', limit:300},
     estudios:{q:'', estado:'', concepto:'', anio:'', visita:'', limit:300},
     venc:{asunto:'', estado:'', vinculo:'', empresa:'', critico:''},
     bitacora:{q:'', limit:300},
     ficha:{levantados:false}
   };
 }
+function prefLeer(k, d){ try{ const v=localStorage.getItem('avopak-est-pref-'+k); return v==null?d:v; }catch(e){ return d; } }
+function prefGuardar(k, v){ try{ localStorage.setItem('avopak-est-pref-'+k, v); }catch(e){} }
 S.ui = freshUI();
 const bc = ('BroadcastChannel' in window) ? new BroadcastChannel('avopak-dsi-estudios') : null;
 const TAB_ID = uid();
@@ -371,9 +382,15 @@ function idx(){
   S.idx=I; return I;
 }
 const P = id => idx().pers.get(id);
-const fuenteNom = id => idx().fuente.get(id)?.nombre || 'Fuente retirada';
+const fuenteNom = id => !id ? 'Sin fuente indicada' : (idx().fuente.get(id)?.nombre || 'Fuente retirada');
 const nombre = p => p ? `${p.nombres} ${p.apellidos}`.trim() : '';
 const vigente = p => p && !p.anon && (p.estado==='Activo' || p.estado==='En selección');
+const esAsp = p => !!p && p.vinculo==='Aspirante';
+const vincTxt = p => !p ? '' : (VINC_ALIAS[p.vinculo] || p.vinculo || '');
+const grupoTxt = p => esAsp(p) ? 'Aspirante' : 'Vinculado';
+const razonDe = p => cfg().empresas.includes(p.empresa) ? p.empresa : OTRAS;
+const razonTxt = r => r===OTRAS ? 'Otras o sin razón social' : r;
+const inactivo = p => p.anon || p.estado==='Retirado' || p.estado==='No vinculado';
 function lastConsulta(pid, fid){ let best=null; for(const c of idx().cons.get(pid)||[]){ if(c.anulada||c.fuenteId!==fid) continue; if(!best||c.fecha>best.fecha) best=c; } return best; }
 function lastConsultaAny(pid){ let best=null; for(const c of idx().cons.get(pid)||[]){ if(c.anulada) continue; if(!best||c.fecha>best.fecha) best=c; } return best; }
 function lastVisita(pid){ let best=null; for(const e of idx().est.get(pid)||[]){ if(e.estado!=='Realizado'||!e.incluyeVisita||!e.fechaRealizacion) continue; if(!best||e.fechaRealizacion>best.fechaRealizacion) best=e; } return best; }
@@ -540,6 +557,7 @@ function render(){
   if(route==='estudio') bindEstudio();
 }
 function updateChrome(){
+  actualizarInstalar();
   const v=vencimientos().filter(x=>x.s==='bad').length; const nv=$('#navvenc'); nv.hidden=!v; nv.textContent=v;
   $('#operator').innerHTML = `${esc(cfg().operador.nombre)}<br>${esc(cfg().operador.cargo)}`;
   updateBackupState();
@@ -571,8 +589,8 @@ function vTablero(){
   const allCons = db.consultas.filter(c=>!c.anulada);
   const byMonth = months.map(k=>{ const v=allCons.filter(c=>c.fecha&&c.fecha.startsWith(k)).length; const [yy,mm]=k.split('-'); return {label:MES[+mm-1]+(y==='todos'?' '+yy.slice(2):''), value:v, tip:`${MES[+mm-1]} ${yy}: ${fmtN(v)} consultas`}; });
 
-  const byEmp = {}; act.forEach(p=>{ const k=p.empresa||p.vinculo; byEmp[k]=(byEmp[k]||0)+1; });
-  const empItems = Object.entries(byEmp).sort((a,b)=>b[1]-a[1]).map(([label,value])=>({label,value}));
+  const hallTipo = db.hallazgos.filter(h=>!h.anulado && h.estado==='Vigente' && vigente(P(h.personaId)));
+  const tipoItems = [...TIPOS_ANT, ''].map(t=>({label:t||'Sin tipo asignado', value:hallTipo.filter(h=>(h.tipo||'')===t).length})).filter(i=>i.label!=='Sin tipo asignado'||i.value);
   const concItems = CONCEPTOS.map(c=>({label:c, value:ests.filter(e=>e.concepto===c).length}));
   const srcRows = cfg().fuentes.map(f=>{ const cs=cons.filter(c=>c.fuenteId===f.id); const r=cs.filter(c=>c.resultado==='Con registro').length; return [f.nombre, cs.length, r]; }).filter(r=>r[1]>0);
   const prior = venc.filter(v=>v.s==='bad').slice(0,8);
@@ -585,12 +603,13 @@ function vTablero(){
     <button class="btn" type="button" data-act="copiarResumen">Copiar resumen para informe</button><button class="btn" type="button" data-act="exportCifras">Exportar cifras</button></div></div>
     ${backupWarn?`<div class="banner warn">${ub?`El último respaldo cifrado se descargó hace ${dias} días.`:'Aún no ha descargado ningún respaldo cifrado.'} Los datos están en la nube, pero un respaldo mensual en su OneDrive protege frente a la pérdida de la cuenta o del proyecto. <button class="linkbtn" type="button" data-act="respaldo">Descargar respaldo ahora</button></div>`:''}
     ${!db.personas.length?`<div class="empty"><p>Aún no hay personas registradas. Empiece importando el listado de personal desde Excel o registrando la primera persona.</p><button class="btn primary" type="button" data-act="importar">Importar personas</button> <button class="btn" type="button" data-act="nuevaPersona">Registrar persona</button></div>`:''}
+    ${tableroRazones()}
     <section class="figures" aria-label="Indicadores">
-      <div class="fig"><div class="big">${fmtN(act.length)}</div><div class="lbl">Personas activas</div><div class="ctx">${fmtN(sel.length)} en selección</div></div>
+      <div class="fig"><div class="big">${fmtN(act.length)}</div><div class="lbl">Personal vinculado activo</div><div class="ctx">${fmtN(sel.length)} aspirantes en selección</div></div>
       <div class="fig"><div class="big">${fmtN(crit.length)}</div><div class="lbl">En cargos críticos</div><div class="ctx">${pct(crit.length,act.length)} % del personal activo</div></div>
       <div class="fig"><div class="big">${pct(critVis,crit.length)} %</div><div class="lbl">Críticos con visita al día</div><div class="ctx">${fmtN(critVis)} de ${fmtN(crit.length)}</div><div class="meter"><i style="width:${pct(critVis,crit.length)}%"></i></div></div>
       <div class="fig"><div class="big">${pct(antOk,act.length)} %</div><div class="lbl">Antecedentes al día</div><div class="ctx">${fmtN(antOk)} de ${fmtN(act.length)} activos</div><div class="meter"><i style="width:${pct(antOk,act.length)}%"></i></div></div>
-      <div class="fig"><div class="big">${fmtN(hallVig)}</div><div class="lbl">Registros vigentes</div><div class="ctx">en personas activas o en selección</div></div>
+      <div class="fig"><div class="big">${fmtN(hallVig)}</div><div class="lbl">Antecedentes vigentes</div><div class="ctx">en personas activas o en selección</div></div>
     </section>
     <div class="grid2">
       <section class="panel"><h2>Pendientes que requieren acción</h2>
@@ -601,13 +620,28 @@ function vTablero(){
         ${chartBarsV(byMonth,'Consultas de antecedentes por mes')}${dataTable(['Mes','Consultas'], byMonth.map(m=>[m.label,m.value]))}</section>
     </div>
     <div class="grid2">
-      <section class="panel"><h2>Personal activo por empresa o finca</h2>${chartBarsH(empItems)}</section>
+      <section class="panel"><h2>Antecedentes vigentes por tipo</h2><p class="hint" style="margin:-6px 0 10px">Personas activas o en selección.</p>${chartBarsH(tipoItems)}</section>
       <section class="panel"><h2>Conceptos de estudios realizados</h2><p class="hint" style="margin:-6px 0 10px">${fmtN(ests.length)} estudios en ${esc(per)}, ${fmtN(ests.filter(e=>e.incluyeVisita).length)} con visita domiciliaria.</p>${chartBarsH(concItems)}</section>
     </div>
     <div class="grid2">
       <section class="panel"><h2>Consultas por fuente</h2>${srcRows.length?`<table class="tbl"><thead><tr><th>Fuente</th><th class="n">Consultas</th><th class="n">Con registro</th></tr></thead><tbody>${srcRows.map(r=>`<tr><td>${esc(r[0])}</td><td class="n">${fmtN(r[1])}</td><td class="n">${fmtN(r[2])}</td></tr>`).join('')}</tbody></table>`:'<p class="hint">Sin consultas en el periodo.</p>'}</section>
       <section class="panel"><h2>Hechos recientes</h2>${facts.length?`<ul class="facts">${facts.map(e=>`<li><span class="when">${fmtDT(e.ts)}</span>${esc(e.accion)}${e.ref?' '+esc(e.ref):''}${e.detalle?'. '+esc(e.detalle):''}</li>`).join('')}</ul><p class="more"><a href="#/bitacora">Ver bitácora completa</a></p>`:'<p class="hint">Sin actividad registrada.</p>'}</section>
     </div>`;
+}
+function conteoRazon(r){
+  const ps=S.db.personas.filter(p=>!p.anon && razonDe(p)===r);
+  const v=ps.filter(p=>!esAsp(p)), a=ps.filter(esAsp);
+  return { total:ps.length, vAct:v.filter(p=>p.estado==='Activo').length, vRet:v.filter(p=>inactivo(p)).length, vOtro:v.filter(p=>!inactivo(p)&&p.estado!=='Activo').length,
+    aSel:a.filter(p=>p.estado==='En selección').length, aNo:a.filter(p=>inactivo(p)).length, accion:ps.filter(p=>cumpl(p).g==='bad').length };
+}
+function razonesConPersonas(){ const rs=[...cfg().empresas]; if(S.db.personas.some(p=>!p.anon && razonDe(p)===OTRAS)) rs.push(OTRAS); return rs; }
+function tableroRazones(){
+  const rs=razonesConPersonas(); if(!rs.length) return '';
+  return `<section class="rs-wrap" aria-label="Personas por razón social"><h2 class="rs-title">Personas por razón social</h2><div class="rs-grid">${rs.map(r=>{ const c=conteoRazon(r);
+    return `<div class="rs-card"><button class="rs-name" type="button" data-act="verRazon" data-razon="${esc(r)}" data-grupo="vinculados">${esc(razonTxt(r))}</button>
+      <button class="rs-row" type="button" data-act="verRazon" data-razon="${esc(r)}" data-grupo="vinculados"><span>Vinculados activos</span><b>${fmtN(c.vAct)}</b></button>
+      <button class="rs-row" type="button" data-act="verRazon" data-razon="${esc(r)}" data-grupo="aspirantes"><span>Aspirantes en selección</span><b>${fmtN(c.aSel)}</b></button>
+      <div class="rs-meta">Retirados: ${fmtN(c.vRet)}. No vinculados: ${fmtN(c.aNo)}.${c.accion?` <span class="tag bad">${fmtN(c.accion)} requieren acción</span>`:''}</div></div>`; }).join('')}</div></section>`;
 }
 function resumenTexto(){
   const db=S.db, y=S.ui.tab.anio; const inY=d=>d&&(y==='todos'||d.startsWith(y));
@@ -619,32 +653,47 @@ function resumenTexto(){
   const venc=vencimientos(); const vb=venc.filter(v=>v.s==='bad').length;
   const per = y==='todos'?'en todo el histórico':'en '+y;
   const conc = CONCEPTOS.map(c=>[c, ests.filter(e=>e.concepto===c).length]).filter(x=>x[1]).map(x=>`${x[0].toLowerCase()}: ${x[1]}`).join('; ');
-  return `Estudios de seguridad de personal, corte al ${fmtD(today())}. Personal activo: ${fmtN(act.length)}, de los cuales ${fmtN(crit.length)} ocupan cargos críticos. Antecedentes al día: ${pct(antOk,act.length)} % del personal activo (${fmtN(antOk)} de ${fmtN(act.length)}). Cobertura de visita domiciliaria vigente en cargos críticos: ${pct(critVis,crit.length)} % (${fmtN(critVis)} de ${fmtN(crit.length)}). Registros vigentes en personal activo o en selección: ${fmtN(hallVig)}. Consultas de antecedentes ${per}: ${fmtN(cons.length)}, de ellas ${fmtN(reg)} con registro. Estudios realizados ${per}: ${fmtN(ests.length)}${conc?' ('+conc+')':''}. Asuntos vencidos a la fecha: ${fmtN(vb)}; por vencer: ${fmtN(venc.length-vb)}.`;
+  return `Estudios de seguridad de personal, corte al ${fmtD(today())}. Personal vinculado activo: ${fmtN(act.length)}, de los cuales ${fmtN(crit.length)} ocupan cargos críticos. Antecedentes al día: ${pct(antOk,act.length)} % del personal activo (${fmtN(antOk)} de ${fmtN(act.length)}). Cobertura de visita domiciliaria vigente en cargos críticos: ${pct(critVis,crit.length)} % (${fmtN(critVis)} de ${fmtN(crit.length)}). Antecedentes vigentes en personal activo o en selección: ${fmtN(hallVig)}. Consultas de antecedentes ${per}: ${fmtN(cons.length)}, de ellas ${fmtN(reg)} con registro. Estudios realizados ${per}: ${fmtN(ests.length)}${conc?' ('+conc+')':''}. Asuntos vencidos a la fecha: ${fmtN(vb)}; por vencer: ${fmtN(venc.length-vb)}.`;
 }
 
 /* ---------- Personas ---------- */
+function razonActual(){
+  const u=S.ui.personas, rs=razonesConPersonas();
+  if(u.razon==='todas' || rs.includes(u.razon)) return u.razon;
+  u.razon = rs.find(r=>S.db.personas.some(p=>!p.anon && razonDe(p)===r)) || rs[0] || 'todas';
+  return u.razon;
+}
 function vPersonas(){
-  const u=S.ui.personas;
-  const empresas=[...new Set([...cfg().empresas, ...S.db.personas.map(p=>p.empresa).filter(Boolean)])].sort();
+  const u=S.ui.personas; const r=razonActual();
   S.listFn = listPersonas;
-  return `<div class="page-head"><div><h1>Personas</h1><div class="lead">Personal propio, de las fincas, contratistas y aspirantes. La criticidad debe corresponder a la identificación formal de cargos críticos.</div></div>
+  const enR = S.db.personas.filter(p=>!p.anon && (r==='todas' || razonDe(p)===r));
+  const nV = enR.filter(p=>!esAsp(p)).length, nA = enR.filter(esAsp).length;
+  const asp = u.grupo==='aspirantes';
+  const tabsR = [...razonesConPersonas(), 'todas'].map(x=>{ const n = x==='todas' ? S.db.personas.filter(p=>!p.anon).length : S.db.personas.filter(p=>!p.anon && razonDe(p)===x).length;
+    return `<button type="button" class="tab${x===r?' on':''}" data-act="verRazon" data-razon="${esc(x)}" aria-pressed="${x===r}">${esc(x==='todas'?'Todas':razonTxt(x))} <span class="tabn">${fmtN(n)}</span></button>`; }).join('');
+  return `<div class="page-head"><div><h1>Personas</h1><div class="lead">Organizadas por razón social y, dentro de cada una, en vinculados y aspirantes. Los aspirantes son personas estudiadas antes de una posible vinculación: su información se conserva aunque no se vinculen.</div></div>
     <div class="head-actions"><button class="btn" type="button" data-act="importar">Importar desde Excel</button><button class="btn" type="button" data-act="exportPersonas">Exportar</button><button class="btn primary" type="button" data-act="nuevaPersona">Registrar persona</button></div></div>
+    <div class="tabs" role="group" aria-label="Razón social">${tabsR}</div>
+    <div class="tabs sub" role="group" aria-label="Grupo">
+      <button type="button" class="tab${!asp?' on':''}" data-act="verGrupo" data-grupo="vinculados" aria-pressed="${!asp}">Vinculados <span class="tabn">${fmtN(nV)}</span></button>
+      <button type="button" class="tab${asp?' on':''}" data-act="verGrupo" data-grupo="aspirantes" aria-pressed="${asp}">Aspirantes <span class="tabn">${fmtN(nA)}</span></button>
+    </div>
     <div class="filters">
       <label>Buscar<input type="search" data-filter="personas.q" value="${esc(u.q)}" placeholder="Nombre, documento, código o cargo"></label>
-      <label>Vínculo<select data-filter="personas.vinculo">${opts(VINCULOS,u.vinculo,'Todos')}</select></label>
-      <label>Empresa o finca<select data-filter="personas.empresa">${opts(empresas,u.empresa,'Todas')}</select></label>
+      ${asp?'':`<label>Tipo de vínculo<select data-filter="personas.vinculo">${opts(TIPOS_VINC,u.vinculo,'Todos')}</select></label>`}
       <label>Criticidad<select data-filter="personas.critico">${opts([{v:'si',t:'Cargos críticos'},{v:'no',t:'No críticos'}],u.critico,'Todas')}</select></label>
-      <label>Estado<select data-filter="personas.estado">${opts([{v:'vigentes',t:'Activos y en selección'},...ESTADOS_P,{v:'todos',t:'Todos'}],u.estado)}</select></label>
+      <label>Estado<select data-filter="personas.estado">${opts([{v:'vigentes',t:asp?'En selección':'Activos'},{v:'inactivos',t:asp?'No vinculados':'Retirados'},{v:'todos',t:'Todos'}],u.estado)}</select></label>
       <label>Cumplimiento<select data-filter="personas.cumpl">${opts([{v:'bad',t:'Requiere acción'},{v:'warn',t:'Por vencer'},{v:'ok',t:'Al día'}],u.cumpl,'Todos')}</select></label>
     </div>
     <div id="selbar"></div><div id="list"></div>`;
 }
 function filtPersonas(){
-  const u=S.ui.personas; const q=norm(u.q);
+  const u=S.ui.personas; const q=norm(u.q); const r=razonActual(); const asp=u.grupo==='aspirantes';
   return S.db.personas.filter(p=>{
-    if(u.estado==='vigentes'){ if(!vigente(p)) return false; } else if(u.estado!=='todos' && p.estado!==u.estado) return false;
-    if(u.vinculo && p.vinculo!==u.vinculo) return false;
-    if(u.empresa && p.empresa!==u.empresa) return false;
+    if(r!=='todas' && razonDe(p)!==r) return false;
+    if(asp!==esAsp(p)) return false;
+    if(u.estado==='vigentes'){ if(!vigente(p)) return false; } else if(u.estado==='inactivos'){ if(vigente(p)) return false; }
+    if(!asp && u.vinculo && vincTxt(p)!==u.vinculo) return false;
     if(u.critico==='si' && !p.critico) return false; if(u.critico==='no' && p.critico) return false;
     if(u.cumpl && cumpl(p).g!==u.cumpl) return false;
     if(q && !norm(`${p.nombres} ${p.apellidos} ${p.doc} ${p.codigo} ${p.cargo}`).includes(q)) return false;
@@ -652,205 +701,254 @@ function filtPersonas(){
   }).sort((a,b)=>(STATUS_RANK[cumpl(b).g]-STATUS_RANK[cumpl(a).g]) || nombre(a).localeCompare(nombre(b),'es'));
 }
 function listPersonas(){
-  const u=S.ui.personas, rows=filtPersonas(), shown=rows.slice(0,u.limit);
+  const u=S.ui.personas, rows=filtPersonas(), shown=rows.slice(0,u.limit); const asp=u.grupo==='aspirantes';
   const el=$('#list'); if(!el) return;
   if(!S.db.personas.length){ el.innerHTML=`<div class="empty"><p>No hay personas registradas. Importe el listado desde un archivo de Excel guardado como CSV, o registre una persona.</p><button class="btn primary" type="button" data-act="importar">Importar personas</button> <button class="btn" type="button" data-act="plantilla" data-tipo="personas">Descargar plantilla</button></div>`; updateSelbar(); return; }
-  el.innerHTML = `<p class="resultcount">${fmtN(rows.length)} personas</p>
-  ${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th class="cb"><input type="checkbox" data-act="selAll" aria-label="Seleccionar todas las filas visibles"></th><th>Persona</th><th>Vínculo y empresa</th><th>Cargo</th><th>Última consulta</th><th>Última visita</th><th>Cumplimiento</th></tr></thead><tbody>
+  const r=razonActual();
+  el.innerHTML = `<p class="resultcount">${fmtN(rows.length)} ${asp?'aspirantes':'personas vinculadas'}${r==='todas'?'':' en '+esc(razonTxt(r))}</p>
+  ${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th class="cb"><input type="checkbox" data-act="selAll" aria-label="Seleccionar todas las filas visibles"></th><th>Persona</th><th>${asp?'Razón social':'Vínculo y razón social'}</th><th>${asp?'Cargo al que aspira':'Cargo'}</th><th>Última consulta</th><th>Última visita</th><th>Cumplimiento</th></tr></thead><tbody>
   ${shown.map(p=>{ const c=cumpl(p), lc=lastConsultaAny(p.id), lv=lastVisita(p.id); return `<tr data-href="#/persona/${p.id}">
     <td class="cb"><input type="checkbox" data-sel="${p.id}" ${u.sel.has(p.id)?'checked':''} aria-label="Seleccionar"></td>
     <td><a href="#/persona/${p.id}"><strong>${esc(nombre(p))}</strong></a>${p.anon?' <span class="tag hist">Datos suprimidos</span>':''}<div class="sub">${esc(p.tipoDoc)} ${esc(p.doc)}; ${esc(p.codigo)}</div></td>
-    <td>${esc(p.vinculo)}<div class="sub">${esc(p.empresa||'')}</div></td>
+    <td>${asp?esc(p.empresa||''):esc(vincTxt(p))+`<div class="sub">${esc(p.empresa||'')}${p.contratista?'; '+esc(p.contratista):''}</div>`}</td>
     <td>${esc(p.cargo||'')}${p.critico?' <span class="tag crit">Crítico</span>':''}<div class="sub">${esc(p.estado)}</div></td>
     <td class="num">${lc?fmtD(lc.fecha):'<span class="sub">Ninguna</span>'}</td>
     <td class="num">${lv?fmtD(lv.fechaRealizacion):'<span class="sub">Ninguna</span>'}</td>
     <td>${stHTML(c.g, G_LBL[c.g])}</td></tr>`; }).join('')}
-  </tbody></table></div>${rows.length>shown.length?`<p class="more"><button class="btn" type="button" data-act="limitAll" data-view="personas">Mostrar las ${fmtN(rows.length)}</button></p>`:''}`:'<p class="empty">Ninguna persona coincide con los filtros.</p>'}`;
+  </tbody></table></div>${rows.length>shown.length?`<p class="more"><button class="btn" type="button" data-act="limitAll" data-view="personas">Mostrar las ${fmtN(rows.length)}</button></p>`:''}`:`<p class="empty">${asp?'No hay aspirantes':'No hay personas vinculadas'} con estos filtros${r==='todas'?'':' en '+esc(razonTxt(r))}.</p>`}`;
   updateSelbar();
 }
 function updateSelbar(){
   const sb=$('#selbar'); if(!sb) return; const n=S.ui.personas.sel.size;
-  sb.innerHTML = n ? `<div class="selbar"><strong>${fmtN(n)} seleccionadas</strong><button class="btn sm" type="button" data-act="consultaLote">Registrar consulta en lote</button><button class="btn sm ghost" type="button" data-act="selClear">Quitar selección</button></div>` : '';
+  sb.innerHTML = n ? `<div class="selbar"><strong>${fmtN(n)} seleccionadas</strong><button class="btn sm" type="button" data-act="consultaLote">Registrar consulta en lote</button><button class="btn sm" type="button" data-act="asignarRazon">Cambiar razón social</button><button class="btn sm ghost" type="button" data-act="selClear">Quitar selección</button></div>` : '';
+}
+function verRazon(r, g){
+  const u=S.ui.personas; u.razon=r; if(g) u.grupo=g; u.sel.clear(); u.limit=300; if(g==='aspirantes'&&u.vinculo) u.vinculo='';
+  prefGuardar('razon', r);
+  if(location.hash.startsWith('#/personas')) render(); else location.hash='#/personas';
+}
+function asignarRazon(){
+  const ids=[...S.ui.personas.sel].filter(id=>P(id)&&!P(id).anon); if(!ids.length) return;
+  openDialog({title:`Cambiar razón social (${ids.length} personas)`, submit:'Cambiar', body:`<label class="f"><span>Razón social</span><select name="empresa">${opts(cfg().empresas,'')}</select></label><p class="hint">Las razones sociales se administran en Configuración. Si un contratista tenía registrado como empresa el nombre de su empleador, ese nombre pasa al campo «Empresa contratista».</p>`,
+    onSubmit:o=>{ if(!o.empresa) return 'Seleccione la razón social.'; let n=0; for(const id of ids){ const p=P(id); if(p.empresa!==o.empresa){ if(p.vinculo==='Contratista' && !p.contratista && p.empresa && !cfg().empresas.includes(p.empresa)) p.contratista=p.empresa; p.empresa=o.empresa; p.actualizado=nowISO(); n++; } }
+      log('Razón social reasignada', '', `${n} personas a ${o.empresa}`); S.ui.personas.sel.clear(); mutate(); render(); toast(`${n} personas asignadas a ${o.empresa}`); }});
 }
 
-function personaForm(p={}){
-  const empresas=[...new Set([...cfg().empresas, ...S.db.personas.map(x=>x.empresa).filter(Boolean)])].sort();
+function personaForm(p={}, pre={}){
+  const asp = p.id ? esAsp(p) : pre.grupo==='aspirantes';
+  const razones=[...cfg().empresas]; if(p.empresa && !razones.includes(p.empresa)) razones.push(p.empresa);
+  const emp = p.id ? (p.empresa||'') : (pre.razon && pre.razon!=='todas' && pre.razon!==OTRAS ? pre.razon : (razones.length===1?razones[0]:''));
+  const vinc = VINC_ALIAS[p.vinculo] || p.vinculo;
   return `<div class="fgrid">
+    <label class="f wide"><span>Razón social</span><select name="empresa" required>${opts(razones,emp,'Seleccione la razón social')}</select><span class="hint">La persona quedará en el grupo de esta razón social; a un contratista se le asigna la razón social a la que presta el servicio. Las razones sociales se administran en Configuración.</span></label>
+    <fieldset class="wide grp"><legend>Grupo</legend>
+      <label class="chk"><input type="radio" name="grupo" value="Vinculado" ${asp?'':'checked'}><span><strong>Vinculado</strong><br><span class="hint">Trabajador, personal de finca o contratista.</span></span></label>
+      <label class="chk"><input type="radio" name="grupo" value="Aspirante" ${asp?'checked':''}><span><strong>Aspirante</strong><br><span class="hint">Solo estudio previo a una posible vinculación. La información se conserva aunque no se vincule.</span></span></label>
+    </fieldset>
+    <label class="f only-vinc"><span>Tipo de vínculo</span><select name="vinculo">${opts(TIPOS_VINC, TIPOS_VINC.includes(vinc)?vinc:TIPOS_VINC[0])}</select></label>
+    <label class="f only-contr"><span>Empresa contratista</span><input type="text" name="contratista" value="${esc(p.contratista || (p.vinculo==='Contratista' && p.empresa && !cfg().empresas.includes(p.empresa) ? p.empresa : ''))}" placeholder="Empleador del contratista"></label>
+    <label class="f"><span>Estado</span><select name="estado" data-estado="${esc(p.estado||'')}"></select></label>
     <label class="f"><span>Tipo de documento</span><select name="tipoDoc">${opts(TIPOS_DOC,p.tipoDoc||'CC')}</select></label>
     <label class="f"><span>Número de documento</span><input type="text" name="doc" value="${esc(p.doc)}" required inputmode="numeric"></label>
-    <label class="f"><span>Código de verificación del documento</span><input type="text" name="codigoVerificacion" value="${esc(p.codigoVerificacion||'')}" placeholder="Ej.: del documento expedido por Procuraduría, Contraloría"></label>
     <label class="f"><span>Nombres</span><input type="text" name="nombres" value="${esc(p.nombres)}" required></label>
     <label class="f"><span>Apellidos</span><input type="text" name="apellidos" value="${esc(p.apellidos)}"></label>
-    <label class="f"><span>Vínculo</span><select name="vinculo">${opts(VINCULOS,p.vinculo||VINCULOS[0])}</select></label>
-    <label class="f"><span>Empresa o finca</span><input type="text" name="empresa" list="dl-emp" value="${esc(p.empresa||'Avo Pak S.A.S.')}"><datalist id="dl-emp">${empresas.map(e=>`<option value="${esc(e)}">`).join('')}</datalist></label>
-    <label class="f"><span>Cargo</span><input type="text" name="cargo" value="${esc(p.cargo)}"></label>
+    <label class="f"><span data-lbl-cargo>Cargo</span><input type="text" name="cargo" value="${esc(p.cargo)}"></label>
     <label class="f"><span>Área</span><input type="text" name="area" value="${esc(p.area)}"></label>
-    <label class="f"><span>Estado</span><select name="estado">${opts(ESTADOS_P,p.estado||'Activo')}</select></label>
-    <label class="f"><span>Fecha de ingreso</span><input type="date" name="fechaIngreso" value="${esc(p.fechaIngreso)}"></label>
-    <label class="f"><span>Fecha de retiro</span><input type="date" name="fechaRetiro" value="${esc(p.fechaRetiro)}"><span class="hint">Solo si el estado es Retirado</span></label>
+    <label class="f only-vinc"><span>Fecha de ingreso</span><input type="date" name="fechaIngreso" value="${esc(p.fechaIngreso)}"></label>
+    <label class="f only-cierre"><span data-lbl-cierre>Fecha de retiro</span><input type="date" name="fechaRetiro" value="${esc(p.fechaRetiro)}"></label>
     <label class="f"><span>Municipio de residencia</span><input type="text" name="municipio" value="${esc(p.municipio)}"></label>
     <div class="wide"><label class="chk"><input type="checkbox" name="critico" ${p.critico?'checked':''}><span><strong>Cargo crítico</strong><br><span class="hint">Activa la periodicidad de cargos críticos y la exigencia de visita domiciliaria.</span></span></label></div>
     <label class="f wide"><span>Observaciones</span><textarea name="obs" rows="2" placeholder="Solo información necesaria para la finalidad de seguridad">${esc(p.obs)}</textarea></label>
   </div>`;
 }
+function bindPersonaForm(f){
+  const est=f.querySelector('[name=estado]'); let previo=est.dataset.estado;
+  const pinta=()=>{
+    const asp=f.querySelector('[name=grupo]:checked')?.value==='Aspirante';
+    f.querySelectorAll('.only-vinc').forEach(x=>{ x.hidden=asp; });
+    f.querySelector('.only-contr').hidden = asp || f.querySelector('[name=vinculo]').value!=='Contratista';
+    const lista=asp?ESTADOS_ASP:ESTADOS_VINC;
+    const ops=(previo && !lista.includes(previo)) ? [...lista, previo] : lista;
+    let val=est.value || previo; if(!ops.includes(val)) val=lista[0];
+    est.innerHTML=opts(ops, val); previo='';
+    const cierre=est.value==='Retirado'||est.value==='No vinculado';
+    f.querySelector('.only-cierre').hidden=!cierre;
+    f.querySelector('[data-lbl-cierre]').textContent=asp?'Fecha de cierre del proceso':'Fecha de retiro';
+    f.querySelector('[data-lbl-cargo]').textContent=asp?'Cargo al que aspira':'Cargo';
+  };
+  f.querySelectorAll('[name=grupo]').forEach(r=>r.addEventListener('change', pinta)); est.addEventListener('change', pinta); f.querySelector('[name=vinculo]').addEventListener('change', pinta); pinta();
+}
+// Normaliza el formulario: el grupo Aspirante se guarda como vínculo "Aspirante"
+function normPersona(o){
+  if(o.grupo==='Aspirante'){ o.vinculo='Aspirante'; o.fechaIngreso=''; }
+  if(o.vinculo!=='Contratista') o.contratista='';
+  if(o.estado!=='Retirado' && o.estado!=='No vinculado') o.fechaRetiro='';
+  delete o.grupo; return o;
+}
 function validarPersona(o, current){
+  if(!o.empresa) return 'Seleccione la razón social.';
   if(!o.doc) return 'Indique el número de documento.';
   if(!o.nombres) return 'Indique los nombres.';
   const dup=S.db.personas.find(x=>x!==current && !x.anon && x.tipoDoc===o.tipoDoc && norm(x.doc)===norm(o.doc));
-  if(dup) return `Ya existe una persona con ${o.tipoDoc} ${o.doc}: ${nombre(dup)} (${dup.codigo}).`;
-  if(o.estado==='Retirado' && !o.fechaRetiro) return 'Indique la fecha de retiro.';
+  if(dup) return `Ya existe una persona con ${o.tipoDoc} ${o.doc}: ${nombre(dup)} (${dup.codigo}), en ${dup.empresa||'sin razón social'}.`;
+  if((o.estado==='Retirado'||o.estado==='No vinculado') && !o.fechaRetiro) return o.estado==='Retirado'?'Indique la fecha de retiro.':'Indique la fecha de cierre del proceso.';
   if(o.fechaIngreso && o.fechaIngreso>today()) return 'La fecha de ingreso no puede ser futura.';
   return null;
 }
 function nuevaPersona(){
-  openDialog({title:'Registrar persona', wide:true, body:personaForm(), submit:'Registrar persona', onSubmit:async o=>{
+  const u=S.ui.personas;
+  openDialog({title:'Registrar persona', wide:true, body:personaForm({}, {razon:u.razon, grupo:location.hash.startsWith('#/personas')?u.grupo:'vinculados'}), submit:'Registrar persona', onOpen:bindPersonaForm, onSubmit:async o=>{
+    normPersona(o);
     const err=validarPersona(o,null); if(err) return err;
     const e2=await reservarSeq('persona',1); if(e2) return e2;
     if(validarPersona(o,null)) return validarPersona(o,null);
     const p=crearPersona(o);
-    log('Persona registrada', p.codigo, `${p.vinculo}${p.critico?', cargo crítico':''}`);
+    log('Persona registrada', p.codigo, `${p.empresa}; ${esAsp(p)?'aspirante':vincTxt(p)}${p.critico?', cargo crítico':''}`);
+    S.ui.personas.razon=razonDe(p); S.ui.personas.grupo=esAsp(p)?'aspirantes':'vinculados';
     mutate(); toast('Persona registrada'); location.hash='#/persona/'+p.id;
   }});
 }
 function crearPersona(o){
   S.db.meta.seq.persona++;
-  const p={id:uid(), codigo:'P-'+String(S.db.meta.seq.persona).padStart(5,'0'), tipoDoc:o.tipoDoc||'CC', doc:o.doc, codigoVerificacion:o.codigoVerificacion||'', nombres:o.nombres, apellidos:o.apellidos||'', vinculo:o.vinculo, empresa:o.empresa||'', cargo:o.cargo||'', area:o.area||'', critico:!!o.critico, estado:o.estado||'Activo', fechaIngreso:o.fechaIngreso||'', fechaRetiro:o.estado==='Retirado'?(o.fechaRetiro||''):'', municipio:o.municipio||'', obs:o.obs||'', antecedentes:[], creado:nowISO(), actualizado:nowISO(), anon:false};
+  const p={id:uid(), codigo:'P-'+String(S.db.meta.seq.persona).padStart(5,'0'), tipoDoc:o.tipoDoc||'CC', doc:o.doc, nombres:o.nombres, apellidos:o.apellidos||'', vinculo:o.vinculo, empresa:o.empresa||'', cargo:o.cargo||'', area:o.area||'', critico:!!o.critico, estado:o.estado||'Activo', fechaIngreso:o.fechaIngreso||'', fechaRetiro:(o.estado==='Retirado'||o.estado==='No vinculado')?(o.fechaRetiro||''):'', municipio:o.municipio||'', obs:o.obs||'', contratista:o.contratista||'', creado:nowISO(), actualizado:nowISO(), anon:false};
   S.db.personas.push(p); S.idx=null; return p;
 }
 function editarPersona(id){
   const p=P(id);
-  openDialog({title:'Editar datos de la persona', wide:true, body:personaForm(p), onSubmit:o=>{
+  openDialog({title:'Editar datos de la persona', wide:true, body:personaForm(p), onOpen:bindPersonaForm, onSubmit:o=>{
+    normPersona(o);
     const err=validarPersona(o,p); if(err) return err;
-    const campos=['tipoDoc','doc','codigoVerificacion','nombres','apellidos','vinculo','empresa','cargo','area','estado','fechaIngreso','fechaRetiro','municipio','obs'];
-    const cambios=[]; const labels={tipoDoc:'tipo de documento',doc:'documento',codigoVerificacion:'código de verificación',nombres:'nombres',apellidos:'apellidos',vinculo:'vínculo',empresa:'empresa',cargo:'cargo',area:'área',estado:'estado',fechaIngreso:'fecha de ingreso',fechaRetiro:'fecha de retiro',municipio:'municipio',obs:'observaciones'};
-    if(o.estado!=='Retirado') o.fechaRetiro='';
+    if(VINC_ALIAS[p.vinculo] && o.vinculo===VINC_ALIAS[p.vinculo]) o.vinculo=p.vinculo;   // no se cambia solo por el nuevo nombre
+    const campos=['empresa','vinculo','contratista','estado','tipoDoc','doc','nombres','apellidos','cargo','area','fechaIngreso','fechaRetiro','municipio','obs'];
+    const labels={empresa:'razón social',vinculo:'vínculo',contratista:'empresa contratista',estado:'estado',tipoDoc:'tipo de documento',doc:'documento',nombres:'nombres',apellidos:'apellidos',cargo:'cargo',area:'área',fechaIngreso:'fecha de ingreso',fechaRetiro:'fecha de retiro o cierre',municipio:'municipio',obs:'observaciones'};
+    const antes=esAsp(p); const cambios=[];
     for(const k of campos){ if((p[k]||'')!==(o[k]||'')){ cambios.push(labels[k]); p[k]=o[k]||''; } }
     if(!!o.critico!==!!p.critico){ cambios.push('criticidad'); p.critico=!!o.critico; }
     if(!cambios.length) return;
     p.actualizado=nowISO();
-    log('Persona actualizada', p.codigo, 'Campos: '+cambios.join(', ')+(cambios.includes('criticidad')?`; ahora ${p.critico?'crítico':'no crítico'}`:'')+(cambios.includes('estado')?`; estado ${p.estado}`:''));
+    const grupo = antes!==esAsp(p) ? `; ahora ${esAsp(p)?'aspirante':'vinculado ('+vincTxt(p)+')'}` : '';
+    log('Persona actualizada', p.codigo, 'Campos: '+cambios.join(', ')+(cambios.includes('criticidad')?`; ahora ${p.critico?'crítico':'no crítico'}`:'')+(cambios.includes('estado')?`; estado ${p.estado}`:'')+(cambios.includes('razón social')?`; razón social ${p.empresa}`:'')+grupo);
     mutate(); render(); toast('Datos actualizados');
   }});
 }
+function vincularAspirante(id){
+  const p=P(id);
+  openDialog({title:'Vincular aspirante', submit:'Vincular', body:`<p>${esc(nombre(p))} (${esc(p.codigo)}) pasa del grupo de aspirantes al de vinculados de <strong>${esc(p.empresa||'')}</strong>. Su historial de consultas, antecedentes y estudios se conserva.</p><div class="fgrid">
+    <label class="f"><span>Tipo de vínculo</span><select name="vinculo">${opts(TIPOS_VINC,TIPOS_VINC[0])}</select></label>
+    <label class="f"><span>Fecha de ingreso</span><input type="date" name="fechaIngreso" value="${today()}"></label>
+    <label class="f wide"><span>Cargo</span><input type="text" name="cargo" value="${esc(p.cargo)}"></label></div>`,
+    onSubmit:o=>{ if(!validISO(o.fechaIngreso)) return 'Indique la fecha de ingreso.';
+      Object.assign(p,{vinculo:o.vinculo, estado:'Activo', fechaIngreso:o.fechaIngreso, fechaRetiro:'', cargo:o.cargo, actualizado:nowISO()});
+      log('Aspirante vinculado', p.codigo, `${o.vinculo}; ${p.empresa}; ingreso ${fmtD(o.fechaIngreso)}`);
+      S.ui.personas.grupo='vinculados'; mutate(); render(); toast('Aspirante vinculado'); }});
+}
 function suprimirPersona(id){
   const p=P(id);
-  openDialog({title:'Suprimir datos de la persona', danger:true, submit:'Suprimir datos', body:`<p>Se eliminarán de forma irreversible los datos identificativos y los textos asociados a <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)}): nombre, documento, observaciones, descripciones, direcciones y contenido de informes. Se conservan solo fechas, tipos y resultados para las cifras, y la constancia en la bitácora.</p>
+  openDialog({title:'Suprimir datos y conservar cifras', danger:true, submit:'Suprimir datos', body:`<p>Se eliminarán de forma irreversible los datos identificativos y los textos asociados a <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)}): nombre, documento, observaciones, descripciones, direcciones y contenido de informes. Se conservan solo fechas, tipos y resultados para las cifras, y la constancia en la bitácora.</p>
     <div class="fgrid"><label class="f"><span>Motivo</span><select name="motivo">${opts(MOTIVOS_SUP,'')}</select></label><label class="f wide"><span>Detalle del soporte</span><input type="text" name="detalle" placeholder="Ej.: solicitud radicada, acta de depuración"></label>
     <label class="f wide"><span>Escriba SUPRIMIR para confirmar</span><input type="text" name="conf" autocomplete="off"></label></div>`,
     onSubmit:o=>{ if(o.conf!=='SUPRIMIR') return 'Escriba SUPRIMIR para confirmar.'; anonimizar(p, o.motivo+(o.detalle?'; '+o.detalle:'')); mutate(); render(); toast('Datos suprimidos'); }});
 }
+function eliminarPersona(id){
+  const p=P(id); const I=idx();
+  const n={c:(I.cons.get(p.id)||[]).length, h:(I.hall.get(p.id)||[]).length, a:(I.aut.get(p.id)||[]).length, e:(I.est.get(p.id)||[]).length};
+  const inf=(I.est.get(p.id)||[]).filter(e=>e.informe).length;
+  openDialog({title:'Eliminar persona', danger:true, submit:'Eliminar definitivamente', body:`<p>Se eliminará por completo a <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)}) con todos sus registros: ${fmtN(n.c)} consultas, ${fmtN(n.h)} antecedentes, ${fmtN(n.a)} autorizaciones y ${fmtN(n.e)} estudios${inf?`, incluidos ${fmtN(inf)} informes emitidos`:''}. No se conservan cifras.</p>
+    <p class="hint">Úselo para registros creados por error o cuando proceda la supresión total. La bitácora conserva solo la constancia de la eliminación, con el código interno y sin datos personales. Si debe conservar las cifras, use «Suprimir datos y conservar cifras».</p>
+    <div class="fgrid"><label class="f"><span>Motivo</span><select name="motivo">${opts(MOTIVOS_SUP,'Registro creado por error')}</select></label><label class="f wide"><span>Detalle del soporte</span><input type="text" name="detalle"></label>
+    <label class="f wide"><span>Escriba ELIMINAR para confirmar</span><input type="text" name="conf" autocomplete="off"></label></div>`,
+    onSubmit:o=>{ if(o.conf!=='ELIMINAR') return 'Escriba ELIMINAR para confirmar.';
+      const db=S.db; const pid=p.id;
+      db.consultas=db.consultas.filter(x=>x.personaId!==pid); db.hallazgos=db.hallazgos.filter(x=>x.personaId!==pid);
+      db.autorizaciones=db.autorizaciones.filter(x=>x.personaId!==pid); db.estudios=db.estudios.filter(x=>x.personaId!==pid);
+      db.personas=db.personas.filter(x=>x.id!==pid); S.ui.personas.sel.delete(pid);
+      log('Persona eliminada', p.codigo, `${o.motivo}${o.detalle?'; '+o.detalle:''}. Se eliminaron ${n.c} consultas, ${n.h} antecedentes, ${n.a} autorizaciones y ${n.e} estudios`);
+      mutate(); toast('Persona eliminada'); location.hash='#/personas'; }});
+}
 function anonimizar(p, motivo){
-  Object.assign(p,{nombres:'Datos', apellidos:'suprimidos', doc:'', municipio:'', obs:'', area:'', anon:true, fechaSupresion:today(), actualizado:nowISO()});
-  for(const c of S.db.consultas) if(c.personaId===p.id){ c.obs=''; c.soporte=''; }
-  for(const h of S.db.hallazgos) if(h.personaId===p.id){ h.descripcion=''; h.soporte=''; h.obs=''; h.soporteLev=''; }
+  Object.assign(p,{nombres:'Datos', apellidos:'suprimidos', doc:'', municipio:'', obs:'', area:'', codigoVerificacion:'', anon:true, fechaSupresion:today(), actualizado:nowISO()});
+  for(const c of S.db.consultas) if(c.personaId===p.id){ c.obs=''; c.soporte=''; c.codigoVerificacion=''; }
+  for(const h of S.db.hallazgos) if(h.personaId===p.id){ Object.assign(h,{descripcion:'', soporte:'', obs:'', soporteLev:'', obsLev:'', radicado:'', autoridad:''}); }
   for(const a of S.db.autorizaciones) if(a.personaId===p.id){ a.soporte=''; a.obs=''; }
   for(const e of S.db.estudios) if(e.personaId===p.id){ Object.assign(e,{direccion:'', municipio:'', soporteVol:'', hechos:'', inferencias:'', conclusion:'', recomendaciones:'', obs:''}); for(const k in (e.checklist||{})) e.checklist[k]={r:e.checklist[k].r, v:'', obs:''}; if(e.informe) e.informe.versiones.forEach(v=>{ v.snap=null; }); }
   log('Datos suprimidos', p.codigo, motivo);
 }
 
-/* ---------- Antecedentes ---------- */
-function nuevoAntecedente(pid){
-  const p=P(pid);
-  openDialog({title:'Registrar antecedente penal', body:`<div class="fgrid">
-    <label class="f"><span>Tipo de antecedente</span><select name="tipo" required>${opts(TIPOS_ANTECEDENTES,'Penal')}</select></label>
-    <label class="f"><span>Artículo de la ley</span><input type="text" name="articulo" placeholder="Ej.: Art. 23, Art. 80" required></label>
-    <label class="f"><span>Ley específica</span><input type="text" name="ley" placeholder="Ej.: Ley 599 de 2000, Código Penal" required></label>
-    <label class="f wide"><span>Descripción del delito</span><textarea name="descripcion" rows="3" placeholder="Descripción clara y concisa del hecho" required></textarea></label>
-  </div>`, submit:'Registrar antecedente', onSubmit:o=>{
-    if(!o.tipo) return 'Indique el tipo de antecedente.';
-    if(!o.articulo) return 'Indique el artículo de la ley.';
-    if(!o.ley) return 'Indique la ley específica.';
-    if(!o.descripcion) return 'Indique la descripción del delito.';
-    const ant={id:uid(), tipo:o.tipo, articulo:o.articulo, ley:o.ley, descripcion:o.descripcion, creado:nowISO()};
-    p.antecedentes.push(ant);
-    log('Antecedente registrado', p.codigo, `${ant.tipo}: ${ant.articulo} (${ant.ley})`);
-    mutate(); render(); toast('Antecedente registrado');
-  }});
-}
-function eliminarAntecedente(id){
-  const ant=S.db.personas.flatMap(p=>p.antecedentes||[]).find(a=>a.id===id);
-  const p=S.db.personas.find(x=>(x.antecedentes||[]).some(a=>a.id===id));
-  if(!ant || !p) return;
-  openDialog({title:'Eliminar antecedente', danger:true, submit:'Eliminar', body:`<p>¿Está seguro de que desea eliminar este antecedente?</p><p><strong>${esc(ant.tipo)}: ${esc(ant.articulo)}</strong></p><p>${esc(ant.ley)}</p>`, onSubmit:o=>{
-    p.antecedentes=p.antecedentes.filter(a=>a.id!==id);
-    log('Antecedente eliminado', p.codigo, `${ant.tipo}: ${ant.articulo}`);
-    mutate(); render(); toast('Antecedente eliminado');
-  }});
-}
-
 /* ---------- Ficha de persona ---------- */
 function vPersona(id){
-  const p=P(id); if(!p) return `<p class="empty">La persona no existe. <a href="#/personas">Volver a personas</a></p>`;
+  const p=P(id); if(!p) return `<p class="empty">La persona no existe o fue eliminada. <a href="#/personas">Volver a personas</a></p>`;
   const c=cumpl(p), I=idx();
   const auts=(I.aut.get(p.id)||[]).slice().sort((a,b)=>b.fecha.localeCompare(a.fecha));
-  const cons=(I.cons.get(p.id)||[]).slice().sort((a,b)=>b.fecha.localeCompare(a.fecha));
-  const halls=(I.hall.get(p.id)||[]).filter(h=>!h.anulado).sort((a,b)=>b.fechaDeteccion.localeCompare(a.fechaDeteccion));
+  const cons=(I.cons.get(p.id)||[]).slice().sort((a,b)=>b.fecha.localeCompare(a.fecha)||(b.creado||'').localeCompare(a.creado||''));
+  const halls=(I.hall.get(p.id)||[]).filter(h=>!h.anulado).sort((a,b)=>(TIPOS_ANT.indexOf(a.tipo)+1||9)-(TIPOS_ANT.indexOf(b.tipo)+1||9) || b.fechaDeteccion.localeCompare(a.fechaDeteccion));
   const vig=halls.filter(h=>h.estado==='Vigente'), lev=halls.filter(h=>h.estado==='Levantado');
   const ests=(I.est.get(p.id)||[]).slice().sort((a,b)=>(b.fechaRealizacion||b.fechaProgramada||'').localeCompare(a.fechaRealizacion||a.fechaProgramada||''));
-  const ants=(p.antecedentes||[]).slice().sort((a,b)=>b.creado.localeCompare(a.creado));
   const showLev=S.ui.ficha.levantados;
   const seg=(k,lab)=>`<div class="seg ${c[k].s}"><div class="k">${lab}</div><div class="v">${stHTML(c[k].s,c[k].t)}</div><div class="d">${esc(c[k].det||'')}</div></div>`;
   const dis = p.anon ? 'disabled' : '';
-  return `<a class="back" href="#/personas">Personas</a>
-  <div class="page-head"><div><h1>${esc(nombre(p))}</h1>${p.anon?`<div class="lead">Datos identificativos suprimidos el ${fmtD(p.fechaSupresion)}. Se conservan solo para cifras y trazabilidad.</div>`:''}</div>
+  const asp = esAsp(p); const r = razonDe(p);
+  const acc = (act, id2, lbl, cls='') => p.anon ? '' : `<button class="btn sm ${cls}" type="button" data-act="${act}" data-id="${id2}">${lbl}</button>`;
+  const chips = TIPOS_ANT.map(t=>{ const n=vig.filter(h=>h.tipo===t).length; return `<span class="chip${n?' on':''}">${esc(t)} <b>${fmtN(n)}</b></span>`; }).join('') + (vig.some(h=>!h.tipo)?`<span class="chip on">Sin tipo <b>${fmtN(vig.filter(h=>!h.tipo).length)}</b></span>`:'');
+  return `<button class="back linkbtn" type="button" data-act="verRazon" data-razon="${esc(r)}" data-grupo="${asp?'aspirantes':'vinculados'}">Personas de ${esc(razonTxt(r))}, ${asp?'aspirantes':'vinculados'}</button>
+  <div class="page-head"><div><h1>${esc(nombre(p))}</h1><div class="lead">${p.anon?`Datos identificativos suprimidos el ${fmtD(p.fechaSupresion)}. Se conservan solo para cifras y trazabilidad.`:`${esc(p.empresa||'Sin razón social')}. ${asp?'Aspirante':esc(vincTxt(p))}. ${esc(p.estado)}.`}</div></div>
     <div class="head-actions">
-      <button class="btn" type="button" data-act="descargarPerfil" data-id="${p.id}">Descargar perfil (PDF)</button>
+      <button class="btn primary" type="button" data-act="descargarPerfil" data-id="${p.id}" ${dis}>Descargar perfil (PDF o Word)</button>
       <button class="btn" type="button" data-act="editarPersona" data-id="${p.id}" ${dis}>Editar datos</button>
-      <button class="btn" type="button" data-act="nuevaAutorizacion" data-pid="${p.id}" ${dis}>Registrar autorización</button>
-      <button class="btn" type="button" data-act="nuevaConsulta" data-pid="${p.id}" ${dis}>Registrar consulta</button>
-      <button class="btn primary" type="button" data-act="nuevoEstudio" data-pid="${p.id}" ${dis}>Programar estudio</button>
+      ${asp && p.estado==='En selección' && !p.anon?`<button class="btn" type="button" data-act="vincularAspirante" data-id="${p.id}">Vincular</button>`:''}
+      <button class="btn" type="button" data-act="nuevoEstudio" data-pid="${p.id}" ${dis}>Programar estudio</button>
     </div></div>
   <dl class="ident">
+    <div><dt>Razón social</dt><dd>${esc(p.empresa||'—')}</dd></div>
+    <div><dt>Grupo</dt><dd>${asp?'Aspirante':'Vinculado'}${asp?'':' <span class="sub">('+esc(vincTxt(p))+')</span>'}</dd></div>
+    ${p.contratista?`<div><dt>Empresa contratista</dt><dd>${esc(p.contratista)}</dd></div>`:''}
     <div><dt>Documento</dt><dd>${esc(p.tipoDoc)} ${esc(p.doc)||'—'}</dd></div>
     <div><dt>Código interno</dt><dd>${esc(p.codigo)}</dd></div>
-    <div><dt>Vínculo</dt><dd>${esc(p.vinculo)}</dd></div>
-    <div><dt>Empresa o finca</dt><dd>${esc(p.empresa||'—')}</dd></div>
-    <div><dt>Cargo</dt><dd>${esc(p.cargo||'—')} ${p.critico?'<span class="tag crit">Crítico</span>':''}</dd></div>
+    <div><dt>${asp?'Cargo al que aspira':'Cargo'}</dt><dd>${esc(p.cargo||'—')} ${p.critico?'<span class="tag crit">Crítico</span>':''}</dd></div>
     <div><dt>Área</dt><dd>${esc(p.area||'—')}</dd></div>
     <div><dt>Estado</dt><dd>${esc(p.estado)}${p.fechaRetiro?' desde '+fmtD(p.fechaRetiro):''}</dd></div>
-    <div><dt>Ingreso</dt><dd>${p.fechaIngreso?fmtD(p.fechaIngreso):'—'}</dd></div>
+    ${asp?'':`<div><dt>Ingreso</dt><dd>${p.fechaIngreso?fmtD(p.fechaIngreso):'—'}</dd></div>`}
     <div><dt>Municipio de residencia</dt><dd>${esc(p.municipio||'—')}</dd></div>
+    ${p.codigoVerificacion?`<div><dt>Código de verificación (registro anterior)</dt><dd>${esc(p.codigoVerificacion)}</dd></div>`:''}
   </dl>
   ${p.obs?`<p class="hint" style="margin-top:10px">${esc(p.obs)}</p>`:''}
-  <div class="strip" aria-label="Situación de cumplimiento">${seg('aut','Autorización de datos')}${seg('ant','Antecedentes')}${seg('vis','Visita domiciliaria')}</div>
+  <div class="strip" aria-label="Situación de cumplimiento">${seg('aut','Autorización de datos')}${seg('ant','Consultas de antecedentes')}${seg('vis','Visita domiciliaria')}</div>
 
   <div class="section"><div class="section-head"><h2>Consultas de antecedentes</h2><button class="btn sm" type="button" data-act="nuevaConsulta" data-pid="${p.id}" ${dis}>Registrar consulta</button></div>
-  ${cons.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Fuente</th><th>Resultado</th><th>Soporte</th><th>Código de verificación</th><th>Observación</th><th></th></tr></thead><tbody>
-  ${cons.map(x=>`<tr class="${x.anulada?'anulado':''}"><td class="num">${fmtD(x.fecha)}</td><td>${esc(fuenteNom(x.fuenteId))}</td><td>${x.resultado==='Con registro'?'<span class="tag bad">Con registro</span>':esc(x.resultado)}</td><td>${esc(x.soporte)}</td><td>${esc(x.codigoVerificacion||'')}</td><td>${esc(x.obs)}${x.anulada?`<div class="sub">Anulada: ${esc(x.motivoAnulacion)}</div>`:''}</td><td class="keep">${x.anulada||p.anon?'':`<button class="btn sm ghost" type="button" data-act="anularConsulta" data-id="${x.id}">Anular</button>`}</td></tr>`).join('')}
+  ${cons.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Fuente</th><th>Resultado</th><th>Código de verificación</th><th>Soporte</th><th>Observación</th><th></th></tr></thead><tbody>
+  ${cons.map(x=>`<tr class="${x.anulada?'anulado':''}"><td class="num">${fmtD(x.fecha)}</td><td>${esc(fuenteNom(x.fuenteId))}</td><td>${x.resultado==='Con registro'?'<span class="tag bad">Con registro</span>':esc(x.resultado)}</td><td class="mono">${esc(x.codigoVerificacion||'')}</td><td>${esc(x.soporte)}</td><td>${esc(x.obs)}${x.anulada?`<div class="sub">Anulada: ${esc(x.motivoAnulacion)}</div>`:''}</td><td class="keep acts">${acc('editarConsulta',x.id,'Editar')}${acc('eliminarConsulta',x.id,'Eliminar','ghost')}</td></tr>`).join('')}
   </tbody></table></div>`:'<p class="hint">Sin consultas registradas.</p>'}</div>
 
-  <div class="section"><div class="section-head"><h2>Registros hallados</h2><div class="head-actions">
+  <div class="section"><div class="section-head"><h2>Antecedentes</h2><div class="head-actions">
     <label class="chk" style="font-size:13px"><input type="checkbox" data-act="toggleLev" ${showLev?'checked':''}> Mostrar levantados (vista de auditoría)</label>
-    <button class="btn sm" type="button" data-act="nuevoHallazgo" data-pid="${p.id}" ${dis}>Registrar hallazgo</button></div></div>
-  ${(vig.length||(showLev&&lev.length))?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Detectado</th><th>Fuente</th><th>Descripción</th><th>Valoración</th><th>Estado</th><th></th></tr></thead><tbody>
-  ${[...vig, ...(showLev?lev:[])].map(h=>`<tr><td class="num">${fmtD(h.fechaDeteccion)}</td><td>${esc(fuenteNom(h.fuenteId))}</td><td>${esc(h.descripcion)}</td><td>${esc(h.valoracion)}</td><td>${h.estado==='Vigente'?'<span class="tag bad">Vigente</span>':`<span class="tag hist">Levantado el ${fmtD(h.fechaLevantamiento)}</span>`}</td><td>${h.estado==='Vigente'&&!p.anon?`<button class="btn sm" type="button" data-act="levantarHallazgo" data-id="${h.id}">Registrar levantamiento</button>`:''}</td></tr>`).join('')}
-  </tbody></table></div>`:`<p class="hint">Sin registros vigentes.${lev.length&&!showLev?` Hay ${lev.length} levantado(s), visibles solo en la vista de auditoría.`:''}</p>`}
-  <p class="hint">Los registros levantados se conservan como trazabilidad, no aparecen en el perfil activo ni alimentan conceptos de riesgo, y se suprimen al vencer el plazo de conservación.</p></div>
-
-  <div class="section"><div class="section-head"><h2>Antecedentes registrados</h2><button class="btn sm" type="button" data-act="nuevoAntecedente" data-pid="${p.id}" ${dis}>Registrar antecedente</button></div>
-  ${ants.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Tipo</th><th>Artículo</th><th>Ley</th><th>Descripción del delito</th><th></th></tr></thead><tbody>
-  ${ants.map(a=>`<tr><td><span class="tag">${esc(a.tipo)}</span></td><td>${esc(a.articulo)}</td><td>${esc(a.ley)}</td><td>${esc(a.descripcion)}</td><td class="keep">${p.anon?'':`<button class="btn sm ghost" type="button" data-act="eliminarAntecedente" data-id="${a.id}">Eliminar</button>`}</td></tr>`).join('')}
-  </tbody></table></div>`:'<p class="hint">Sin antecedentes registrados.</p>'}</div>
+    <button class="btn sm" type="button" data-act="nuevoHallazgo" data-pid="${p.id}" ${dis}>Registrar antecedente</button></div></div>
+  <div class="chips" aria-label="Antecedentes vigentes por tipo">${chips}</div>
+  ${(vig.length||(showLev&&lev.length))?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Tipo</th><th>Detectado</th><th>Fuente</th><th>Artículo y norma</th><th>Descripción</th><th>Valoración</th><th>Estado</th><th></th></tr></thead><tbody>
+  ${[...vig, ...(showLev?lev:[])].map(h=>`<tr><td>${h.tipo?`<span class="tag t-${TIPOS_ANT.indexOf(h.tipo)}">${esc(h.tipo)}</span>`:'<span class="sub">Sin tipo</span>'}</td><td class="num">${fmtD(h.fechaDeteccion)}${h.fechaHecho?`<div class="sub">Hecho: ${fmtD(h.fechaHecho)}</div>`:''}</td><td>${esc(fuenteNom(h.fuenteId))}${h.autoridad?`<div class="sub">${esc(h.autoridad)}</div>`:''}</td><td>${esc(artNorma(h))}${h.radicado?`<div class="sub">${esc(h.radicado)}</div>`:''}</td><td>${esc(h.descripcion)}</td><td>${esc(h.valoracion)}</td><td>${h.estado==='Vigente'?'<span class="tag bad">Vigente</span>':`<span class="tag hist">Levantado el ${fmtD(h.fechaLevantamiento)}</span>`}</td><td class="acts">${acc('editarHallazgo',h.id,'Editar')}${h.estado==='Vigente'?acc('levantarHallazgo',h.id,'Levantar'):''}${acc('eliminarHallazgo',h.id,'Eliminar','ghost')}</td></tr>`).join('')}
+  </tbody></table></div>`:`<p class="hint">Sin antecedentes vigentes.${lev.length&&!showLev?` Hay ${lev.length} levantado(s), visibles solo en la vista de auditoría.`:''}</p>`}
+  <p class="hint">Cada antecedente se clasifica como penal, judicial, administrativo o infracción de tránsito, con el artículo y la norma. Los levantados se conservan como trazabilidad, no aparecen en el perfil activo y se suprimen al vencer el plazo de conservación.</p></div>
 
   <div class="section"><div class="section-head"><h2>Estudios y visitas</h2><button class="btn sm" type="button" data-act="nuevoEstudio" data-pid="${p.id}" ${dis}>Programar estudio</button></div>
   ${ests.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Código</th><th>Tipo</th><th>Visita</th><th>Fecha</th><th>Estado</th><th>Concepto</th><th>Informe</th></tr></thead><tbody>
-  ${ests.map(e=>`<tr data-href="#/estudio/${e.id}" class="${e.estado==='Anulado'?'anulado':''}"><td>${esc(e.codigo)}</td><td>${esc(e.tipo)}</td><td>${e.incluyeVisita?'Sí':'No'}</td><td class="num">${fmtD(e.fechaRealizacion||e.fechaProgramada)}${!e.fechaRealizacion?'<div class="sub">programada</div>':''}</td><td>${esc(e.estado)}</td><td>${esc(e.concepto||'')}</td><td>${e.informe?esc(e.informe.codigo)+' v'+e.informe.versiones.length:''}</td></tr>`).join('')}
-  </tbody></table></div>`:'<p class="hint">Sin estudios registrados.</p>'}</div>
+  ${ests.map(e=>`<tr data-href="#/estudio/${e.id}" class="${e.estado==='Anulado'?'anulado':''}"><td><a href="#/estudio/${e.id}">${esc(e.codigo)}</a></td><td>${esc(e.tipo)}</td><td>${e.incluyeVisita?'Sí':'No'}</td><td class="num">${fmtD(e.fechaRealizacion||e.fechaProgramada)}${!e.fechaRealizacion?'<div class="sub">programada</div>':''}</td><td>${esc(e.estado)}</td><td>${esc(e.concepto||'')}</td><td>${e.informe?esc(e.informe.codigo)+' v'+e.informe.versiones.length:''}</td></tr>`).join('')}
+  </tbody></table></div><p class="hint">Para editar o eliminar un estudio, ábralo.</p>`:'<p class="hint">Sin estudios registrados.</p>'}</div>
 
   <div class="section"><div class="section-head"><h2>Autorizaciones</h2><button class="btn sm" type="button" data-act="nuevaAutorizacion" data-pid="${p.id}" ${dis}>Registrar autorización</button></div>
   ${auts.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Tipo</th><th>Fecha</th><th>Formato y versión</th><th>Soporte</th><th>Estado</th><th></th></tr></thead><tbody>
-  ${auts.map(a=>`<tr><td>${esc(a.tipo)}</td><td class="num">${fmtD(a.fecha)}</td><td>${esc(a.version)}</td><td>${esc(a.soporte)}</td><td>${a.estado==='Vigente'?'<span class="tag ok">Vigente</span>':`<span class="tag hist">Revocada el ${fmtD(a.fechaRevocatoria)}</span>`}</td><td>${a.estado==='Vigente'&&!p.anon?`<button class="btn sm ghost" type="button" data-act="revocarAutorizacion" data-id="${a.id}">Registrar revocatoria</button>`:''}</td></tr>`).join('')}
+  ${auts.map(a=>`<tr><td>${esc(a.tipo)}</td><td class="num">${fmtD(a.fecha)}</td><td>${esc(a.version)}</td><td>${esc(a.soporte)}</td><td>${a.estado==='Vigente'?'<span class="tag ok">Vigente</span>':`<span class="tag hist">Revocada el ${fmtD(a.fechaRevocatoria)}</span>`}</td><td class="acts">${acc('editarAutorizacion',a.id,'Editar')}${a.estado==='Vigente'?acc('revocarAutorizacion',a.id,'Revocar'):''}${acc('eliminarAutorizacion',a.id,'Eliminar','ghost')}</td></tr>`).join('')}
   </tbody></table></div>`:'<p class="hint">Sin autorizaciones registradas.</p>'}</div>
 
   <div class="section"><div class="section-head"><h2>Historial</h2></div>${historial(p)}</div>
 
-  ${p.anon?'':`<div class="section"><div class="section-head"><h2>Supresión de datos</h2></div><p class="hint">Procede al vencer el plazo de conservación, por solicitud de supresión del titular o por registro erróneo. Es irreversible.</p><button class="btn" type="button" data-act="suprimirPersona" data-id="${p.id}">Suprimir datos de esta persona</button></div>`}`;
+  <div class="section"><div class="section-head"><h2>Eliminar o suprimir</h2></div>
+    <p class="hint">«Eliminar persona» borra a la persona y todos sus registros (por ejemplo, si se creó por error). «Suprimir datos» borra los datos identificativos y conserva fechas y resultados para las cifras (vencimiento del plazo de conservación o solicitud del titular). Ambas son irreversibles y quedan en la bitácora.</p>
+    <div class="head-actions">${p.anon?'':`<button class="btn" type="button" data-act="suprimirPersona" data-id="${p.id}">Suprimir datos y conservar cifras</button>`}<button class="btn danger" type="button" data-act="eliminarPersona" data-id="${p.id}">Eliminar persona</button></div></div>`;
 }
+const artNorma = h => [h.articulo?('Art. '+String(h.articulo).replace(/^art(í|i)?(culo)?\.?\s*/i,'')):'', h.norma||''].filter(Boolean).join(', ');
 function historial(p){
   const I=idx(), ev=[];
   for(const a of I.aut.get(p.id)||[]){ ev.push({d:a.fecha, t:`Autorización: ${a.tipo.toLowerCase()}`}); if(a.estado==='Revocada') ev.push({d:a.fechaRevocatoria, t:'Revocatoria de autorización', h:true}); }
   for(const c of I.cons.get(p.id)||[]) if(!c.anulada) ev.push({d:c.fecha, t:`Consulta en ${fuenteNom(c.fuenteId)}: ${c.resultado.toLowerCase()}`});
-  for(const h of I.hall.get(p.id)||[]) if(!h.anulado){ ev.push({d:h.fechaDeteccion, t:`Registro detectado en ${fuenteNom(h.fuenteId)}`}); if(h.estado==='Levantado'&&S.ui.ficha.levantados) ev.push({d:h.fechaLevantamiento, t:`Registro levantado (${fuenteNom(h.fuenteId)})`, h:true}); }
+  for(const h of I.hall.get(p.id)||[]) if(!h.anulado){ ev.push({d:h.fechaDeteccion, t:`Antecedente ${h.tipo?h.tipo.toLowerCase()+' ':''}detectado (${fuenteNom(h.fuenteId)})`}); if(h.estado==='Levantado'&&S.ui.ficha.levantados) ev.push({d:h.fechaLevantamiento, t:`Antecedente levantado (${fuenteNom(h.fuenteId)})`, h:true}); }
   for(const e of I.est.get(p.id)||[]){ if(e.estado==='Realizado') ev.push({d:e.fechaRealizacion, t:`${e.incluyeVisita?'Visita domiciliaria':'Estudio'} realizado (${e.codigo}): ${(e.concepto||'sin concepto').toLowerCase()}`}); else if(e.estado==='No realizado') ev.push({d:e.fechaProgramada, t:`Estudio no realizado (${e.codigo}): ${(e.motivoNR||'').toLowerCase()}`}); }
   ev.sort((a,b)=>(b.d||'').localeCompare(a.d||''));
   if(!ev.length) return '<p class="hint">Sin eventos.</p>';
@@ -858,17 +956,35 @@ function historial(p){
 }
 
 /* ---------- Autorizaciones ---------- */
+function autorizacionBody(p, a={}){
+  return `<p class="hint">Persona: <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)})</p><div class="fgrid">
+    <label class="f wide"><span>Tipo</span><select name="tipo">${opts(TIPOS_AUT,a.tipo||TIPOS_AUT[0])}</select></label>
+    <label class="f"><span>Fecha de firma</span><input type="date" name="fecha" value="${esc(a.fecha||today())}" max="${today()}"></label>
+    <label class="f"><span>Formato y versión</span><input type="text" name="version" value="${esc(a.version)}" placeholder="Código y versión del formato"></label>
+    <label class="f wide"><span>Ubicación del soporte firmado</span><input type="text" name="soporte" value="${esc(a.soporte)}" placeholder="Carpeta física o ruta en SharePoint"></label></div>
+    <p class="hint">La visita domiciliaria exige autorización específica, previa, expresa e informada, distinta de la general.</p>`;
+}
 function nuevaAutorizacion(pid){
   const p=P(pid);
-  openDialog({title:'Registrar autorización', body:`<p class="hint">Persona: <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)})</p><div class="fgrid">
-    <label class="f wide"><span>Tipo</span><select name="tipo">${opts(TIPOS_AUT,TIPOS_AUT[0])}</select></label>
-    <label class="f"><span>Fecha de firma</span><input type="date" name="fecha" value="${today()}" max="${today()}"></label>
-    <label class="f"><span>Formato y versión</span><input type="text" name="version" placeholder="Código y versión del formato"></label>
-    <label class="f wide"><span>Ubicación del soporte firmado</span><input type="text" name="soporte" placeholder="Carpeta física o ruta en SharePoint"></label></div>
-    <p class="hint">La visita domiciliaria exige autorización específica, previa, expresa e informada, distinta de la general.</p>`,
+  openDialog({title:'Registrar autorización', body:autorizacionBody(p),
     onSubmit:o=>{ if(!validISO(o.fecha)) return 'Indique una fecha válida.'; if(o.fecha>today()) return 'La fecha no puede ser futura.';
       const a={id:uid(), personaId:pid, tipo:o.tipo, fecha:o.fecha, version:o.version, soporte:o.soporte, estado:'Vigente', creado:nowISO()};
       S.db.autorizaciones.push(a); log('Autorización registrada', p.codigo, a.tipo); mutate(); render(); toast('Autorización registrada'); }});
+}
+function editarAutorizacion(id){
+  const a=S.db.autorizaciones.find(x=>x.id===id), p=P(a.personaId);
+  openDialog({title:'Editar autorización', body:autorizacionBody(p,a), submit:'Guardar cambios',
+    onSubmit:o=>{ if(!validISO(o.fecha)||o.fecha>today()) return 'Indique una fecha válida, no futura.';
+      const lab={tipo:'tipo', fecha:'fecha', version:'formato y versión', soporte:'soporte'}; const cambios=Object.keys(lab).filter(k=>(a[k]||'')!==(o[k]||''));
+      if(!cambios.length) return; cambios.forEach(k=>{ a[k]=o[k]; }); a.actualizado=nowISO();
+      log('Autorización modificada', p.codigo, 'Campos: '+cambios.map(k=>lab[k]).join(', ')); mutate(); render(); toast('Autorización actualizada'); }});
+}
+function eliminarAutorizacion(id){
+  const a=S.db.autorizaciones.find(x=>x.id===id), p=P(a.personaId);
+  const usos=S.db.estudios.filter(e=>e.autorizacionId===id);
+  openDialog({title:'Eliminar autorización', danger:true, submit:'Eliminar', body:`<p>${esc(a.tipo)} de ${esc(nombre(p))}, firmada el ${fmtD(a.fecha)}. Se elimina definitivamente; la bitácora conserva solo la constancia.</p>${usos.length?`<div class="banner warn">La usa${usos.length>1?'n':''} ${usos.map(e=>esc(e.codigo)).join(', ')} como autorización de la visita. Ese estudio quedará sin autorización registrada; los informes ya emitidos no cambian.</div>`:''}`,
+    onSubmit:()=>{ S.db.autorizaciones=S.db.autorizaciones.filter(x=>x.id!==id); usos.forEach(e=>{ e.autorizacionId=''; });
+      log('Autorización eliminada', p.codigo, `${a.tipo} del ${fmtD(a.fecha)}`); mutate(); render(); toast('Autorización eliminada'); }});
 }
 function revocarAutorizacion(id){
   const a=S.db.autorizaciones.find(x=>x.id===id), p=P(a.personaId);
@@ -876,47 +992,99 @@ function revocarAutorizacion(id){
     onSubmit:o=>{ if(!validISO(o.fecha)) return 'Indique una fecha válida.'; a.estado='Revocada'; a.fechaRevocatoria=o.fecha; a.soporteRev=o.soporte; log('Autorización revocada', p.codigo, a.tipo); mutate(); render(); toast('Revocatoria registrada'); }});
 }
 
+/* ---------- Antecedentes: campos comunes ---------- */
+function fuentesActivas(incluir){ const l=cfg().fuentes.filter(f=>f.activa||f.id===incluir).map(f=>({v:f.id, t:f.nombre})); return l; }
+function tipoSugerido(fid){ const n=norm(fid?fuenteNom(fid):''); if(!n) return ''; if(/simit|transito|comparendo/.test(n)) return 'Infracciones de tránsito'; if(/procuradur|contralor|medidas correctivas|disciplin|fiscal/.test(n)) return 'Administrativo'; if(/rama judicial|procesos/.test(n)) return 'Judicial'; if(/judicial|penal/.test(n)) return 'Penal'; return ''; }
+// nombres de campo: en la consulta llevan prefijo (hTipo, hDesc, hVal...), en el formulario propio van sin prefijo
+const ANT_N = {tipo:['tipo','hTipo'], fechaHecho:['fechaHecho','hFechaHecho'], articulo:['articulo','hArticulo'], norma:['norma','hNorma'], autoridad:['autoridad','hAutoridad'], radicado:['radicado','hRadicado'], descripcion:['descripcion','hDesc'], valoracion:['valoracion','hVal']};
+function camposAnt(h={}, enConsulta=false){
+  const n=k=>ANT_N[k][enConsulta?1:0];
+  return `<label class="f"><span>Tipo de antecedente</span><select name="${n('tipo')}" data-tipo-ant>${opts(TIPOS_ANT,h.tipo||'','Seleccione')}</select></label>
+    <label class="f"><span>Fecha del hecho o de la decisión</span><input type="date" name="${n('fechaHecho')}" value="${esc(h.fechaHecho)}" max="${today()}"></label>
+    <label class="f"><span>Artículo</span><input type="text" name="${n('articulo')}" value="${esc(h.articulo)}" placeholder="Ej.: 239. En tránsito, el código de la infracción"></label>
+    <label class="f"><span>Ley o norma</span><input type="text" name="${n('norma')}" value="${esc(h.norma)}" list="dl-normas" placeholder="Ej.: Ley 599 de 2000, Código Penal"></label>
+    <label class="f"><span>Autoridad</span><input type="text" name="${n('autoridad')}" value="${esc(h.autoridad)}" placeholder="Juzgado, fiscalía, entidad o secretaría"></label>
+    <label class="f"><span>Proceso, radicado o comparendo</span><input type="text" name="${n('radicado')}" value="${esc(h.radicado)}"></label>
+    <label class="f wide"><span>Descripción del delito, falta o infracción</span><textarea name="${n('descripcion')}" rows="2" placeholder="Breve y objetiva; el detalle queda en el soporte">${esc(h.descripcion)}</textarea></label>
+    <label class="f"><span>Valoración</span><select name="${n('valoracion')}">${opts(cfg().valoraciones, h.valoracion||cfg().valoraciones[1]||cfg().valoraciones[0])}</select></label>
+    <datalist id="dl-normas">${NORMAS_SUG.map(x=>`<option value="${esc(x)}">`).join('')}</datalist>`;
+}
+// Al cambiar la fuente se sugiere el tipo, salvo que el usuario ya lo haya elegido
+function bindTipoSugerido(f){ const fu=f.querySelector('[name=fuente]'), ti=f.querySelector('[data-tipo-ant]'); if(!fu||!ti) return; let manual=!!ti.value; ti.addEventListener('change',()=>{ manual=true; }); const s=()=>{ if(!manual){ ti.value=tipoSugerido(fu.value)||''; } }; fu.addEventListener('change', s); s(); }
+function leerAnt(o, enConsulta){ const r={}; for(const k in ANT_N) r[k]=(o[ANT_N[k][enConsulta?1:0]]||'').trim(); return r; }
+
 /* ---------- Consultas ---------- */
-function fuentesActivas(){ return cfg().fuentes.filter(f=>f.activa).map(f=>({v:f.id, t:f.nombre})); }
-function consultaBody(p){
+function consultaBody(p, c=null, tieneAnt=false){
+  const fuentes=fuentesActivas(c&&c.fuenteId);
   return `${p?`<p class="hint">Persona: <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)})</p>`:''}<div class="fgrid">
     ${p?'':personaPicker()}
-    <label class="f"><span>Fecha de la consulta</span><input type="date" name="fecha" value="${today()}" max="${today()}"></label>
-    <label class="f"><span>Resultado</span><select name="resultado" data-toggle-hall>${opts(RESULTADOS,'Sin registro')}</select></label>
-    <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentesActivas(),'')}</select></label>
-    <label class="f wide"><span>Ubicación del soporte</span><input type="text" name="soporte" placeholder="Ej.: PDF del certificado en la carpeta del expediente"></label>
-    <label class="f wide"><span>Código de verificación del documento</span><input type="text" name="codigoVerificacion" placeholder="Ej.: número de control emitido por Procuraduría, Contraloría, etc."></label>
-    <label class="f wide"><span>Observación</span><input type="text" name="obs" data-sens></label>
-    <div class="wide hall-extra" hidden><div class="banner warn" style="margin:0 0 10px">Se creará un registro hallado vigente asociado a esta consulta. Descríbalo de forma breve y objetiva.</div><div class="fgrid">
-      <label class="f wide"><span>Descripción breve del registro</span><input type="text" name="hDesc" data-sens placeholder="Ej.: anotación vigente en la fuente; ver soporte"></label>
-      <label class="f"><span>Valoración</span><select name="hVal">${opts(cfg().valoraciones,cfg().valoraciones[1]||cfg().valoraciones[0])}</select></label></div></div>
+    <label class="f"><span>Fecha de la consulta</span><input type="date" name="fecha" value="${esc(c?c.fecha:today())}" max="${today()}"></label>
+    <label class="f"><span>Resultado</span><select name="resultado" data-toggle-hall>${opts(RESULTADOS,c?c.resultado:'Sin registro')}</select></label>
+    <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentes,c?c.fuenteId:'','Seleccione')}</select></label>
+    <label class="f wide"><span>Ubicación del soporte</span><input type="text" name="soporte" value="${esc(c?c.soporte:'')}" placeholder="Ej.: PDF del certificado en la carpeta del expediente"></label>
+    <label class="f wide"><span>Código de verificación del certificado</span><input type="text" name="codigoVerificacion" value="${esc(c?c.codigoVerificacion:'')}" autocomplete="off" spellcheck="false" placeholder="El que trae el certificado expedido por la Procuraduría, la Contraloría, la Policía u otra entidad"><span class="hint">Permite verificar después la autenticidad del certificado en la página de la entidad.</span></label>
+    <label class="f wide"><span>Observación</span><input type="text" name="obs" value="${esc(c?c.obs:'')}" data-sens></label>
+    ${tieneAnt?`<div class="wide banner warn" style="margin:0">Esta consulta tiene un antecedente asociado. Si el resultado deja de ser «Con registro», revise ese antecedente en la sección Antecedentes de la ficha: puede editarlo, registrar su levantamiento o eliminarlo.</div>`
+    :`<div class="wide hall-extra" hidden><div class="banner warn" style="margin:0 0 10px">Se registrará el antecedente hallado en esta consulta. Clasifíquelo y descríbalo de forma breve y objetiva.</div><div class="fgrid">${camposAnt({}, true)}</div></div>`}
   </div>`;
 }
 function bindHallToggle(f){ const sel=f.querySelector('[data-toggle-hall]'); const box=f.querySelector('.hall-extra'); if(!sel||!box) return; const t=()=>box.hidden=sel.value!=='Con registro'; sel.addEventListener('change',t); t(); }
+function bindConsulta(f){ bindHallToggle(f); bindTipoSugerido(f); }
+function crearAntDesdeConsulta(p, c, o){
+  const a=leerAnt(o, true);
+  const h={id:uid(), personaId:p.id, fuenteId:c.fuenteId, consultaId:c.id, fechaDeteccion:c.fecha, tipo:a.tipo||tipoSugerido(c.fuenteId), fechaHecho:a.fechaHecho, articulo:a.articulo, norma:a.norma, autoridad:a.autoridad, radicado:a.radicado,
+    descripcion:a.descripcion, valoracion:a.valoracion||cfg().valoraciones[1]||cfg().valoraciones[0]||'', estado:'Vigente', soporte:c.soporte||'', creado:nowISO()};
+  S.db.hallazgos.push(h); c.hallazgoId=h.id; return h;
+}
 function registrarConsulta(p, o, lote){
   const c={id:uid(), personaId:p.id, fecha:o.fecha, fuenteId:o.fuente, resultado:o.resultado, codigoVerificacion:o.codigoVerificacion||'', soporte:o.soporte||'', obs:o.obs||'', consultadoPor:cfg().operador.nombre, creado:nowISO(), anulada:false, lote:lote||''};
   S.db.consultas.push(c);
-  if(o.resultado==='Con registro'){
-    const h={id:uid(), personaId:p.id, fuenteId:o.fuente, consultaId:c.id, fechaDeteccion:o.fecha, descripcion:o.hDesc||'', valoracion:o.hVal||cfg().valoraciones[1]||'', estado:'Vigente', soporte:o.soporte||'', creado:nowISO()};
-    S.db.hallazgos.push(h); c.hallazgoId=h.id;
-  }
+  if(o.resultado==='Con registro') crearAntDesdeConsulta(p, c, o);
   return c;
+}
+function validarConsulta(o, conAnt){
+  if(!o.fuente) return 'Seleccione la fuente.'; if(!validISO(o.fecha)) return 'Indique una fecha válida.'; if(o.fecha>today()) return 'La fecha no puede ser futura.';
+  if(conAnt && o.resultado==='Con registro'){ if(!o.hTipo) return 'Seleccione el tipo de antecedente (penal, judicial, administrativo o de tránsito).'; if(!o.hDesc) return 'Describa brevemente el antecedente hallado.'; }
+  return null;
 }
 function nuevaConsulta(pid){
   const p0 = pid ? P(pid) : null;
-  openDialog({title:'Registrar consulta de antecedentes', body:consultaBody(p0), submit:'Registrar consulta', onOpen:bindHallToggle, onSubmit:o=>{
+  openDialog({title:'Registrar consulta de antecedentes', wide:true, body:consultaBody(p0), submit:'Registrar consulta', onOpen:bindConsulta, onSubmit:o=>{
     const p = p0 || resolvePersona(o.personaRef); if(!p) return 'Seleccione una persona registrada de la lista.';
-    if(!o.fuente) return 'Seleccione la fuente.'; if(!validISO(o.fecha)) return 'Indique una fecha válida.'; if(o.fecha>today()) return 'La fecha no puede ser futura.';
-    if(o.resultado==='Con registro' && !o.hDesc) return 'Describa brevemente el registro hallado.';
+    const err=validarConsulta(o, true); if(err) return err;
     registrarConsulta(p,o);
-    log('Consulta registrada', p.codigo, `${fuenteNom(o.fuente)}: ${o.resultado}`);
+    log('Consulta registrada', p.codigo, `${fuenteNom(o.fuente)}: ${o.resultado}${o.codigoVerificacion?'; código de verificación '+o.codigoVerificacion:''}${o.resultado==='Con registro'?'; antecedente '+o.hTipo.toLowerCase():''}`);
     mutate(); render(); toast('Consulta registrada');
   }});
 }
+function editarConsulta(id){
+  const c=S.db.consultas.find(x=>x.id===id); const p=P(c.personaId);
+  const h=c.hallazgoId?S.db.hallazgos.find(x=>x.id===c.hallazgoId):null;
+  openDialog({title:'Editar consulta de antecedentes', wide:true, body:consultaBody(p, c, !!h), submit:'Guardar cambios', onOpen:bindConsulta, onSubmit:o=>{
+    const crear = o.resultado==='Con registro' && !h;
+    const err=validarConsulta(o, crear); if(err) return err;
+    const lab={fecha:'fecha', fuenteId:'fuente', resultado:'resultado', soporte:'soporte', codigoVerificacion:'código de verificación', obs:'observación'};
+    const nuevo={fecha:o.fecha, fuenteId:o.fuente, resultado:o.resultado, soporte:o.soporte, codigoVerificacion:o.codigoVerificacion, obs:o.obs};
+    const cambios=Object.keys(lab).filter(k=>(c[k]||'')!==(nuevo[k]||''));
+    if(!cambios.length && !crear) return;
+    Object.assign(c, nuevo, {actualizado:nowISO()});
+    if(crear) crearAntDesdeConsulta(p, c, o);
+    log('Consulta modificada', p.codigo, `${fuenteNom(c.fuenteId)} del ${fmtD(c.fecha)}. Campos: ${cambios.map(k=>lab[k]).join(', ')||'ninguno'}${crear?'; se registró el antecedente hallado':''}`);
+    mutate(); render(); toast('Consulta actualizada');
+  }});
+}
+function eliminarConsulta(id){
+  const c=S.db.consultas.find(x=>x.id===id); const p=P(c.personaId);
+  const h=c.hallazgoId?S.db.hallazgos.find(x=>x.id===c.hallazgoId):null;
+  openDialog({title:'Eliminar consulta', danger:true, submit:'Eliminar', body:`<p>Consulta del ${fmtD(c.fecha)} en ${esc(fuenteNom(c.fuenteId))} (${esc(c.resultado)}) de ${esc(nombre(p))}. Se elimina definitivamente; la bitácora conserva solo la constancia, sin datos personales.</p>${h?`<label class="chk"><input type="checkbox" name="conAnt" checked> <span>Eliminar también el antecedente asociado${h.tipo?' ('+esc(h.tipo.toLowerCase())+')':''}: ${esc(h.descripcion)}</span></label>`:''}`,
+    onSubmit:o=>{ S.db.consultas=S.db.consultas.filter(x=>x.id!==id); let extra='';
+      if(h){ if(o.conAnt){ S.db.hallazgos=S.db.hallazgos.filter(x=>x.id!==h.id); extra='; también su antecedente asociado'; } else h.consultaId=''; }
+      log('Consulta eliminada', p.codigo, `${fuenteNom(c.fuenteId)} del ${fmtD(c.fecha)}: ${c.resultado}${extra}`); mutate(); render(); toast('Consulta eliminada'); }});
+}
 function consultaLote(){
   const ids=[...S.ui.personas.sel].filter(id=>P(id)&&!P(id).anon); if(!ids.length) return;
-  openDialog({title:`Registrar consulta en lote (${ids.length} personas)`, submit:'Registrar consultas', body:`<p class="hint">Se registra la misma fuente, fecha y resultado "Sin registro" para todas las personas seleccionadas. Si alguna tuvo registro, regístrelo después en su ficha como consulta individual con resultado "Con registro".</p><div class="fgrid">
-    <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentesActivas(),'')}</select></label>
+  openDialog({title:`Registrar consulta en lote (${ids.length} personas)`, submit:'Registrar consultas', body:`<p class="hint">Se registra la misma fuente, fecha y resultado "Sin registro" para todas las personas seleccionadas. Si alguna tuvo registro, regístrelo después en su ficha como consulta individual con resultado "Con registro". El código de verificación de cada certificado se agrega después, en la ficha de cada persona, con «Editar».</p><div class="fgrid">
+    <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentesActivas(),'','Seleccione')}</select></label>
     <label class="f"><span>Fecha de la consulta</span><input type="date" name="fecha" value="${today()}" max="${today()}"></label>
     <label class="f wide"><span>Ubicación del soporte</span><input type="text" name="soporte" placeholder="Ej.: reporte consolidado de la plataforma"></label></div>`,
     onSubmit:o=>{ if(!o.fuente) return 'Seleccione la fuente.'; if(!validISO(o.fecha)||o.fecha>today()) return 'Indique una fecha válida, no futura.';
@@ -925,17 +1093,12 @@ function consultaLote(){
       log('Consulta en lote registrada', lote, `${ids.length} personas; ${fuenteNom(o.fuente)}: Sin registro`);
       S.ui.personas.sel.clear(); mutate(); render(); toast(`${ids.length} consultas registradas`); }});
 }
-function anularConsulta(id){
-  const c=S.db.consultas.find(x=>x.id===id), p=P(c.personaId);
-  openDialog({title:'Anular consulta', danger:true, submit:'Anular consulta', body:`<p>Consulta del ${fmtD(c.fecha)} en ${esc(fuenteNom(c.fuenteId))}. La consulta anulada queda visible tachada y no cuenta para cumplimiento ni cifras.${c.hallazgoId?' El registro hallado asociado también se anulará.':''}</p><label class="f"><span>Motivo</span><input type="text" name="motivo" required></label>`,
-    onSubmit:o=>{ if(!o.motivo) return 'Indique el motivo.'; c.anulada=true; c.motivoAnulacion=o.motivo; if(c.hallazgoId){ const h=S.db.hallazgos.find(x=>x.id===c.hallazgoId); if(h){ h.anulado=true; h.motivoAnulacion='Consulta anulada'; } } log('Consulta anulada', p.codigo, o.motivo); mutate(); render(); }});
-}
 function vConsultas(){
   const u=S.ui.consultas; S.listFn=listConsultas;
-  return `<div class="page-head"><div><h1>Consultas de antecedentes</h1><div class="lead">Toda consulta realizada, por fuente, con su resultado y la ubicación del soporte.</div></div>
+  return `<div class="page-head"><div><h1>Consultas de antecedentes</h1><div class="lead">Toda consulta realizada, por fuente, con su resultado, el código de verificación del certificado y la ubicación del soporte.</div></div>
     <div class="head-actions"><button class="btn" type="button" data-act="importar" data-tipo="consultas">Importar histórico</button><button class="btn" type="button" data-act="exportConsultas">Exportar</button><button class="btn primary" type="button" data-act="nuevaConsulta">Registrar consulta</button></div></div>
     <div class="filters">
-      <label>Buscar persona<input type="search" data-filter="consultas.q" value="${esc(u.q)}" placeholder="Nombre, documento o código"></label>
+      <label>Buscar persona<input type="search" data-filter="consultas.q" value="${esc(u.q)}" placeholder="Nombre, documento, código o código de verificación"></label>
       <label>Fuente<select data-filter="consultas.fuente">${opts(cfg().fuentes.map(f=>({v:f.id,t:f.nombre})),u.fuente,'Todas')}</select></label>
       <label>Resultado<select data-filter="consultas.resultado">${opts(RESULTADOS,u.resultado,'Todos')}</select></label>
       <label>Desde<input type="date" data-filter="consultas.desde" value="${esc(u.desde)}"></label>
@@ -945,54 +1108,76 @@ function vConsultas(){
 }
 function filtConsultas(){
   const u=S.ui.consultas, q=norm(u.q);
-  return S.db.consultas.filter(c=>{ if(!u.anuladas&&c.anulada) return false; if(u.fuente&&c.fuenteId!==u.fuente) return false; if(u.resultado&&c.resultado!==u.resultado) return false; if(u.desde&&c.fecha<u.desde) return false; if(u.hasta&&c.fecha>u.hasta) return false; if(q){ const p=P(c.personaId); if(!norm(`${nombre(p)} ${p?.doc} ${p?.codigo}`).includes(q)) return false; } return true; }).sort((a,b)=>b.fecha.localeCompare(a.fecha)||b.creado.localeCompare(a.creado));
+  return S.db.consultas.filter(c=>{ if(!u.anuladas&&c.anulada) return false; if(u.fuente&&c.fuenteId!==u.fuente) return false; if(u.resultado&&c.resultado!==u.resultado) return false; if(u.desde&&c.fecha<u.desde) return false; if(u.hasta&&c.fecha>u.hasta) return false; if(q){ const p=P(c.personaId); if(!norm(`${nombre(p)} ${p?.doc} ${p?.codigo} ${c.codigoVerificacion||''}`).includes(q)) return false; } return true; }).sort((a,b)=>b.fecha.localeCompare(a.fecha)||(b.creado||'').localeCompare(a.creado||''));
 }
 function listConsultas(){
   const u=S.ui.consultas, rows=filtConsultas(), shown=rows.slice(0,u.limit), el=$('#list');
   const reg=rows.filter(c=>c.resultado==='Con registro'&&!c.anulada).length;
-  el.innerHTML = `<p class="resultcount">${fmtN(rows.length)} consultas; ${fmtN(reg)} con registro</p>${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Persona</th><th>Fuente</th><th>Resultado</th><th>Soporte</th><th>Registró</th></tr></thead><tbody>
-  ${shown.map(c=>{ const p=P(c.personaId); return `<tr data-href="#/persona/${c.personaId}" class="${c.anulada?'anulado':''}"><td class="num">${fmtD(c.fecha)}</td><td>${esc(nombre(p))}<div class="sub">${esc(p?.codigo)}</div></td><td>${esc(fuenteNom(c.fuenteId))}</td><td>${c.resultado==='Con registro'?'<span class="tag bad">Con registro</span>':esc(c.resultado)}</td><td>${esc(c.soporte)}${c.lote?`<div class="sub">Lote ${esc(c.lote)}</div>`:''}</td><td>${esc(c.consultadoPor)}</td></tr>`; }).join('')}
+  el.innerHTML = `<p class="resultcount">${fmtN(rows.length)} consultas; ${fmtN(reg)} con registro</p>${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Persona</th><th>Fuente</th><th>Resultado</th><th>Código de verificación</th><th>Soporte</th><th></th></tr></thead><tbody>
+  ${shown.map(c=>{ const p=P(c.personaId); return `<tr data-href="#/persona/${c.personaId}" class="${c.anulada?'anulado':''}"><td class="num">${fmtD(c.fecha)}</td><td>${esc(nombre(p))}<div class="sub">${esc(p?.codigo)}; ${esc(p?.empresa||'')}</div></td><td>${esc(fuenteNom(c.fuenteId))}</td><td>${c.resultado==='Con registro'?'<span class="tag bad">Con registro</span>':esc(c.resultado)}</td><td class="mono">${esc(c.codigoVerificacion||'')}</td><td>${esc(c.soporte)}${c.lote?`<div class="sub">Lote ${esc(c.lote)}</div>`:''}</td><td class="keep acts">${p&&!p.anon?`<button class="btn sm" type="button" data-act="editarConsulta" data-id="${c.id}">Editar</button><button class="btn sm ghost" type="button" data-act="eliminarConsulta" data-id="${c.id}">Eliminar</button>`:''}</td></tr>`; }).join('')}
   </tbody></table></div>${rows.length>shown.length?`<p class="more"><button class="btn" type="button" data-act="limitAll" data-view="consultas">Mostrar las ${fmtN(rows.length)}</button></p>`:''}`:'<p class="empty">No hay consultas con estos filtros.</p>'}`;
 }
 
-/* ---------- Hallazgos ---------- */
+/* ---------- Antecedentes (registros hallados) ---------- */
+function antecedenteBody(p, h={}){
+  return `<p class="hint">Persona: <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)}).${h.id?'':' Use esta opción para antecedentes conocidos por una fuente distinta de una consulta registrada; los hallados en una consulta se registran desde la consulta.'}</p><div class="fgrid">
+    <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentesActivas(h.fuenteId),h.fuenteId||'','Sin fuente del catálogo')}</select></label>
+    <label class="f"><span>Fecha de detección</span><input type="date" name="fecha" value="${esc(h.fechaDeteccion||today())}" max="${today()}"></label>
+    ${camposAnt(h,false)}
+    <label class="f wide"><span>Ubicación del soporte</span><input type="text" name="soporte" value="${esc(h.soporte)}"></label></div>`;
+}
+function validarAnt(o){ if(!o.tipo) return 'Seleccione el tipo de antecedente (penal, judicial, administrativo o de tránsito).'; if(!o.descripcion) return 'Describa el antecedente.'; if(!validISO(o.fecha)||o.fecha>today()) return 'Indique una fecha de detección válida, no futura.'; if(o.fechaHecho && (!validISO(o.fechaHecho)||o.fechaHecho>today())) return 'La fecha del hecho no es válida.'; return null; }
 function nuevoHallazgo(pid){
   const p=P(pid);
-  openDialog({title:'Registrar hallazgo', body:`<p class="hint">Persona: <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)}). Use esta opción para registros conocidos por una fuente distinta de una consulta registrada.</p><div class="fgrid">
-    <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentesActivas(),'')}</select></label>
-    <label class="f"><span>Fecha de detección</span><input type="date" name="fecha" value="${today()}" max="${today()}"></label>
-    <label class="f"><span>Valoración</span><select name="val">${opts(cfg().valoraciones,cfg().valoraciones[1])}</select></label>
-    <label class="f wide"><span>Descripción breve</span><input type="text" name="desc" data-sens required></label>
-    <label class="f wide"><span>Ubicación del soporte</span><input type="text" name="soporte"></label></div>`,
-    onSubmit:o=>{ if(!o.fuente) return 'Seleccione la fuente.'; if(!o.desc) return 'Describa el registro.'; if(!validISO(o.fecha)||o.fecha>today()) return 'Indique una fecha válida, no futura.';
-      S.db.hallazgos.push({id:uid(), personaId:pid, fuenteId:o.fuente, fechaDeteccion:o.fecha, descripcion:o.desc, valoracion:o.val, estado:'Vigente', soporte:o.soporte, creado:nowISO()});
-      log('Hallazgo registrado', p.codigo, fuenteNom(o.fuente)); mutate(); render(); toast('Hallazgo registrado'); }});
+  openDialog({title:'Registrar antecedente', wide:true, body:antecedenteBody(p), submit:'Registrar antecedente', onOpen:bindTipoSugerido,
+    onSubmit:o=>{ const err=validarAnt(o); if(err) return err; const a=leerAnt(o,false);
+      const h={id:uid(), personaId:pid, fuenteId:o.fuente||'', fechaDeteccion:o.fecha, ...a, valoracion:a.valoracion||cfg().valoraciones[1]||'', estado:'Vigente', soporte:o.soporte, creado:nowISO()};
+      S.db.hallazgos.push(h);
+      log('Antecedente registrado', p.codigo, `${h.tipo}${artNorma(h)?'; '+artNorma(h):''}; ${fuenteNom(h.fuenteId)}`); mutate(); render(); toast('Antecedente registrado'); }});
+}
+function editarHallazgo(id){
+  const h=S.db.hallazgos.find(x=>x.id===id), p=P(h.personaId);
+  openDialog({title:'Editar antecedente', wide:true, body:antecedenteBody(p,h), submit:'Guardar cambios', onOpen:bindTipoSugerido,
+    onSubmit:o=>{ const err=validarAnt(o); if(err) return err; const a=leerAnt(o,false);
+      const nuevo={fuenteId:o.fuente||'', fechaDeteccion:o.fecha, soporte:o.soporte||'', ...a};
+      const lab={fuenteId:'fuente', fechaDeteccion:'fecha de detección', soporte:'soporte', tipo:'tipo', fechaHecho:'fecha del hecho', articulo:'artículo', norma:'norma', autoridad:'autoridad', radicado:'radicado', descripcion:'descripción', valoracion:'valoración'};
+      const cambios=Object.keys(lab).filter(k=>(h[k]||'')!==(nuevo[k]||'')); if(!cambios.length) return;
+      Object.assign(h, nuevo, {actualizado:nowISO()});
+      log('Antecedente modificado', p.codigo, `${h.tipo}. Campos: ${cambios.map(k=>lab[k]).join(', ')}`); mutate(); render(); toast('Antecedente actualizado'); }});
+}
+function eliminarHallazgo(id){
+  const h=S.db.hallazgos.find(x=>x.id===id), p=P(h.personaId);
+  const c=h.consultaId?S.db.consultas.find(x=>x.id===h.consultaId):null;
+  openDialog({title:'Eliminar antecedente', danger:true, submit:'Eliminar', body:`<p>${h.tipo?esc(h.tipo)+': ':''}${esc(h.descripcion)} (${esc(nombre(p))}). Se elimina definitivamente; la bitácora conserva solo la constancia, sin datos personales.</p><p class="hint">Si el antecedente dejó de existir en la fuente, es preferible «Levantar», que lo saca del perfil activo y conserva la trazabilidad.${c?' La consulta en la que se halló conserva el resultado «'+esc(c.resultado)+'»; puede editarla si corresponde.':''}</p>`,
+    onSubmit:()=>{ S.db.hallazgos=S.db.hallazgos.filter(x=>x.id!==id); if(c&&c.hallazgoId===id) c.hallazgoId='';
+      log('Antecedente eliminado', p.codigo, `${h.tipo||'sin tipo'}; ${fuenteNom(h.fuenteId)}; detectado el ${fmtD(h.fechaDeteccion)}`); mutate(); render(); toast('Antecedente eliminado'); }});
 }
 function levantarHallazgo(id){
   const h=S.db.hallazgos.find(x=>x.id===id), p=P(h.personaId);
-  openDialog({title:'Registrar levantamiento del registro', submit:'Registrar levantamiento', body:`<p>${esc(nombre(p))}: registro en ${esc(fuenteNom(h.fuenteId))}, detectado el ${fmtD(h.fechaDeteccion)}.</p><p class="hint">El registro levantado sale del perfil activo y queda solo como trazabilidad en la vista de auditoría.</p><div class="fgrid">
+  openDialog({title:'Registrar levantamiento del antecedente', submit:'Registrar levantamiento', body:`<p>${esc(nombre(p))}: ${h.tipo?esc(h.tipo.toLowerCase())+', ':''}${esc(fuenteNom(h.fuenteId))}, detectado el ${fmtD(h.fechaDeteccion)}.</p><p class="hint">El antecedente levantado sale del perfil activo y queda solo como trazabilidad en la vista de auditoría.</p><div class="fgrid">
     <label class="f"><span>Fecha en que se verificó el levantamiento</span><input type="date" name="fecha" value="${today()}" max="${today()}"></label>
     <label class="f wide"><span>Soporte de la verificación</span><input type="text" name="soporte" placeholder="Ej.: nueva consulta sin registro, certificado"></label>
     <label class="f wide"><span>Observación</span><input type="text" name="obs" data-sens></label></div>`,
     onSubmit:o=>{ if(!validISO(o.fecha)||o.fecha>today()) return 'Indique una fecha válida, no futura.'; if(o.fecha<h.fechaDeteccion) return 'La fecha es anterior a la detección.';
-      Object.assign(h,{estado:'Levantado', fechaLevantamiento:o.fecha, soporteLev:o.soporte, obsLev:o.obs}); log('Registro levantado', p.codigo, fuenteNom(h.fuenteId)); mutate(); render(); toast('Levantamiento registrado'); }});
+      Object.assign(h,{estado:'Levantado', fechaLevantamiento:o.fecha, soporteLev:o.soporte, obsLev:o.obs}); log('Antecedente levantado', p.codigo, `${h.tipo||'sin tipo'}; ${fuenteNom(h.fuenteId)}`); mutate(); render(); toast('Levantamiento registrado'); }});
 }
 function vHallazgos(){
   const u=S.ui.hallazgos; S.listFn=listHallazgos;
-  return `<div class="page-head"><div><h1>Registros hallados</h1><div class="lead">Registros detectados en las consultas. Los levantados se muestran solo al filtrarlos, como trazabilidad de auditoría.</div></div><div class="head-actions"><button class="btn" type="button" data-act="exportHallazgos">Exportar</button></div></div>
+  return `<div class="page-head"><div><h1>Antecedentes</h1><div class="lead">Antecedentes penales, judiciales, administrativos y de tránsito hallados en las consultas o registrados en la ficha. Los levantados se muestran solo al filtrarlos, como trazabilidad de auditoría.</div></div><div class="head-actions"><button class="btn" type="button" data-act="exportHallazgos">Exportar</button></div></div>
   <div class="filters">
-    <label>Buscar persona<input type="search" data-filter="hallazgos.q" value="${esc(u.q)}"></label>
+    <label>Buscar<input type="search" data-filter="hallazgos.q" value="${esc(u.q)}" placeholder="Persona, artículo, norma o descripción"></label>
+    <label>Tipo<select data-filter="hallazgos.tipo">${opts(TIPOS_ANT,u.tipo,'Todos')}</select></label>
     <label>Estado<select data-filter="hallazgos.estado">${opts([{v:'Vigente',t:'Vigentes'},{v:'Levantado',t:'Levantados (auditoría)'},{v:'',t:'Todos'}],u.estado)}</select></label>
     <label>Valoración<select data-filter="hallazgos.valoracion">${opts(cfg().valoraciones,u.valoracion,'Todas')}</select></label>
     <label>Fuente<select data-filter="hallazgos.fuente">${opts(cfg().fuentes.map(f=>({v:f.id,t:f.nombre})),u.fuente,'Todas')}</select></label>
   </div><div id="list"></div>`;
 }
-function filtHallazgos(){ const u=S.ui.hallazgos, q=norm(u.q); return S.db.hallazgos.filter(h=>{ if(h.anulado) return false; if(u.estado&&h.estado!==u.estado) return false; if(u.valoracion&&h.valoracion!==u.valoracion) return false; if(u.fuente&&h.fuenteId!==u.fuente) return false; if(q){ const p=P(h.personaId); if(!norm(`${nombre(p)} ${p?.doc} ${p?.codigo}`).includes(q)) return false; } return true; }).sort((a,b)=>b.fechaDeteccion.localeCompare(a.fechaDeteccion)); }
+function filtHallazgos(){ const u=S.ui.hallazgos, q=norm(u.q); return S.db.hallazgos.filter(h=>{ if(h.anulado) return false; if(u.estado&&h.estado!==u.estado) return false; if(u.tipo&&h.tipo!==u.tipo) return false; if(u.valoracion&&h.valoracion!==u.valoracion) return false; if(u.fuente&&h.fuenteId!==u.fuente) return false; if(q){ const p=P(h.personaId); if(!norm(`${nombre(p)} ${p?.doc} ${p?.codigo} ${h.articulo||''} ${h.norma||''} ${h.descripcion||''} ${h.radicado||''}`).includes(q)) return false; } return true; }).sort((a,b)=>b.fechaDeteccion.localeCompare(a.fechaDeteccion)); }
 function listHallazgos(){
   const rows=filtHallazgos(), u=S.ui.hallazgos, shown=rows.slice(0,u.limit);
-  $('#list').innerHTML = `<p class="resultcount">${fmtN(rows.length)} registros</p>${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Detectado</th><th>Persona</th><th>Fuente</th><th>Descripción</th><th>Valoración</th><th>Estado</th></tr></thead><tbody>
-  ${shown.map(h=>{ const p=P(h.personaId); return `<tr data-href="#/persona/${h.personaId}"><td class="num">${fmtD(h.fechaDeteccion)}</td><td>${esc(nombre(p))}${p?.critico?' <span class="tag crit">Crítico</span>':''}<div class="sub">${esc(p?.codigo)}; ${esc(p?.estado)}</div></td><td>${esc(fuenteNom(h.fuenteId))}</td><td>${esc(h.descripcion)}</td><td>${esc(h.valoracion)}</td><td>${h.estado==='Vigente'?'<span class="tag bad">Vigente</span>':`<span class="tag hist">Levantado el ${fmtD(h.fechaLevantamiento)}</span>`}</td></tr>`; }).join('')}
-  </tbody></table></div>`:'<p class="empty">No hay registros con estos filtros.</p>'}`;
+  $('#list').innerHTML = `<p class="resultcount">${fmtN(rows.length)} antecedentes</p>${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Tipo</th><th>Detectado</th><th>Persona</th><th>Fuente</th><th>Artículo y norma</th><th>Descripción</th><th>Valoración</th><th>Estado</th></tr></thead><tbody>
+  ${shown.map(h=>{ const p=P(h.personaId); return `<tr data-href="#/persona/${h.personaId}"><td>${h.tipo?`<span class="tag t-${TIPOS_ANT.indexOf(h.tipo)}">${esc(h.tipo)}</span>`:'<span class="sub">Sin tipo</span>'}</td><td class="num">${fmtD(h.fechaDeteccion)}</td><td>${esc(nombre(p))}${p?.critico?' <span class="tag crit">Crítico</span>':''}<div class="sub">${esc(p?.codigo)}; ${esc(p?.empresa||'')}; ${esc(p?.estado)}</div></td><td>${esc(fuenteNom(h.fuenteId))}</td><td>${esc(artNorma(h))}</td><td>${esc(h.descripcion)}</td><td>${esc(h.valoracion)}</td><td>${h.estado==='Vigente'?'<span class="tag bad">Vigente</span>':`<span class="tag hist">Levantado el ${fmtD(h.fechaLevantamiento)}</span>`}</td></tr>`; }).join('')}
+  </tbody></table></div>`:'<p class="empty">No hay antecedentes con estos filtros.</p>'}`;
 }
 
 /* ---------- Estudios y visitas ---------- */
@@ -1037,7 +1222,7 @@ function contentOf(e,p){
   const consultas=oblig.map(f=>{ const c=lastConsulta(p.id,f.id); if(!c||(e.fechaRealizacion&&c.fecha>e.fechaRealizacion)) return null;
     let resultado=c.resultado; if(c.hallazgoId){ const h=S.db.hallazgos.find(x=>x.id===c.hallazgoId); if(h&&h.estado==='Levantado'&&(!e.fechaRealizacion||h.fechaLevantamiento<=e.fechaRealizacion)) resultado='Sin anotación vigente (levantamiento verificado el '+fmtD(h.fechaLevantamiento)+')'; }
     return {fuente:f.nombre, fecha:c.fecha, resultado}; }).filter(Boolean);
-  const hall=(idx().hall.get(p.id)||[]).filter(h=>!h.anulado&&h.estado==='Vigente').map(h=>({fuente:fuenteNom(h.fuenteId), fecha:h.fechaDeteccion, descripcion:h.descripcion, valoracion:h.valoracion}));
+  const hall=(idx().hall.get(p.id)||[]).filter(h=>!h.anulado&&h.estado==='Vigente').map(h=>{ const o={fuente:fuenteNom(h.fuenteId), fecha:h.fechaDeteccion, descripcion:h.descripcion, valoracion:h.valoracion}; if(h.tipo) o.tipo=h.tipo; if(artNorma(h)) o.norma=artNorma(h); return o; });
   return {
     estudio:{codigo:e.codigo, tipo:e.tipo, incluyeVisita:e.incluyeVisita, fechaRealizacion:e.fechaRealizacion, ejecutor:e.ejecutor, municipio:e.incluyeVisita?e.municipio:'', direccion:e.incluyeVisita?e.direccion:''},
     persona:{codigo:p.codigo, nombre:nombre(p), documento:`${p.tipoDoc} ${p.doc}`, vinculo:p.vinculo, empresa:p.empresa, cargo:p.cargo, critico:p.critico},
@@ -1065,7 +1250,7 @@ function vEstudio(id){
     else ctrl=`<select name="ck_${c.k}_r" aria-label="${esc(c.t)}">${opts(CHECK_RES,v.r,'Seleccione')}</select>`;
     return `<tr class="${c.visita?'only-visita':''}"><td>${esc(c.t)}</td><td style="width:200px">${ctrl}</td><td><input type="text" name="ck_${c.k}_o" value="${esc(v.obs)}" data-sens aria-label="Observación"></td></tr>`; }).join('');
   return `<a class="back" href="#/persona/${p.id}">${esc(nombre(p))}</a>
-  <div class="page-head"><div><h1>Estudio ${esc(e.codigo)}</h1><div class="lead">${esc(nombre(p))}, ${esc(p.cargo||'sin cargo')}${p.critico?', cargo crítico':''}. ${esc(p.vinculo)}${p.empresa?', '+esc(p.empresa):''}.</div></div>
+  <div class="page-head"><div><h1>Estudio ${esc(e.codigo)}</h1><div class="lead">${esc(nombre(p))}, ${esc(p.cargo||'sin cargo')}${p.critico?', cargo crítico':''}. ${esc(vincTxt(p))}${p.empresa?', '+esc(p.empresa):''}.</div></div>
     <div class="head-actions">${e.informe?e.informe.versiones.slice().reverse().map(v=>`<button class="btn" type="button" data-act="imprimirInforme" data-id="${e.id}" data-v="${v.v}" ${v.snap?'':'disabled'}>Informe v${v.v}</button>`).join(''):''}</div></div>
   ${banner}<div id="esterr"></div>
   <form id="estform" class="estform ${e.incluyeVisita?'has-visita':''} ${e.estado==='No realizado'?'st-nr':''}" data-id="${e.id}" novalidate>
@@ -1108,7 +1293,8 @@ function vEstudio(id){
     <label class="f"><span>Concepto</span><select name="concepto">${opts(CONCEPTOS,e.concepto,'Seleccione')}</select></label>
     <label class="f wide"><span>Recomendaciones</span><textarea name="recomendaciones" rows="3" placeholder="Con responsable y plazo cuando aplique">${esc(e.recomendaciones)}</textarea></label>
   </div></fieldset>
-  ${lock?'':`<div class="stickybar"><button class="btn primary" type="button" data-act="guardarEstudio">Guardar estudio</button><button class="btn" type="button" data-act="emitirInforme">${e.informe?'Emitir nueva versión del informe':'Emitir informe'}</button><span style="flex:1"></span><button class="btn ghost" type="button" data-act="anularEstudio">Anular estudio</button></div>`}
+  ${lock?'':`<div class="stickybar"><button class="btn primary" type="button" data-act="guardarEstudio">Guardar estudio</button><button class="btn" type="button" data-act="emitirInforme">${e.informe?'Emitir nueva versión del informe':'Emitir informe'}</button><span style="flex:1"></span><button class="btn ghost" type="button" data-act="anularEstudio">Anular estudio</button><button class="btn ghost dangerlink" type="button" data-act="eliminarEstudio">Eliminar estudio</button></div>`}
+  ${lock&&!p.anon?`<div class="stickybar"><span style="flex:1"></span><button class="btn ghost dangerlink" type="button" data-act="eliminarEstudio">Eliminar estudio</button></div>`:''}
   </form>`;
 }
 function bindEstudio(){
@@ -1171,11 +1357,11 @@ async function emitirInforme(){
 }
 function imprimirInforme(id, v){
   const e=S.db.estudios.find(x=>x.id===id); const ver=e.informe.versiones.find(x=>x.v===+v); if(!ver||!ver.snap){ toast('El contenido de esta versión fue suprimido.'); return; }
-  const {meta, content:c}=ver.snap; const L=cfg().logo;
+  const {meta, content:c}=ver.snap; const L=cfg().logoDoc;
   const yn=b=>b?'Sí':'No';
   const para=t=>t?`<p>${esc(t)}</p>`:'<p class="empty">Sin anotaciones.</p>';
   const html=`<div class="rep">
-    <table class="head"><tr><td class="logo" rowspan="3">${L?`<img src="${L}" alt="Avo Pak S.A.S.">`:'AVO PAK S.A.S.'}</td><td class="title" rowspan="3">Dirección de Seguridad Integral<br>Informe de estudio de seguridad de personal${c.estudio.incluyeVisita?' con visita domiciliaria':''}</td><td class="meta">Código: ${esc(meta.codigo)}</td></tr><tr><td class="meta">Versión: ${meta.version}</td></tr><tr><td class="meta">Emisión: ${fmtDT(meta.emitido)}</td></tr></table>
+    <table class="head"><tr><td class="logo" rowspan="3"><img src="${esc(L||'img/logo-doc.png')}" alt="Avo Pak S.A.S., Dirección de Seguridad"></td><td class="title" rowspan="3">Dirección de Seguridad Integral<br>Informe de estudio de seguridad de personal${c.estudio.incluyeVisita?' con visita domiciliaria':''}</td><td class="meta">Código: ${esc(meta.codigo)}</td></tr><tr><td class="meta">Versión: ${meta.version}</td></tr><tr><td class="meta">Emisión: ${fmtDT(meta.emitido)}</td></tr></table>
     <div class="class">Información estrictamente confidencial. Circulación restringida.</div>
     <h3 class="bar">1. Identificación</h3>
     <table class="kv"><tr><th>Estudio</th><td>${esc(c.estudio.codigo)}; ${esc(c.estudio.tipo)}</td></tr><tr><th>Fecha de realización</th><td>${fmtD(c.estudio.fechaRealizacion)}</td></tr><tr><th>Ejecutor</th><td>${esc(c.estudio.ejecutor)}</td></tr>
@@ -1189,8 +1375,8 @@ function imprimirInforme(id, v){
     ${c.fuentesInfo.length?`<table><tr><th>Fuente</th><th>Naturaleza</th></tr>${c.fuentesInfo.map(f=>`<tr><td>${esc(f.t)}</td><td>${esc(f.n)}</td></tr>`).join('')}</table>`:'<p class="empty">No se indicaron.</p>'}
     <p><strong>Consultas de antecedentes vigentes a la fecha del estudio</strong></p>
     ${c.consultas.length?`<table><tr><th>Fuente</th><th>Fecha</th><th>Resultado</th></tr>${c.consultas.map(x=>`<tr><td>${esc(x.fuente)}</td><td>${fmtD(x.fecha)}</td><td>${esc(x.resultado)}</td></tr>`).join('')}</table>`:'<p class="empty">Sin consultas registradas.</p>'}
-    <p><strong>Registros vigentes</strong></p>
-    ${c.hallazgos.length?`<table><tr><th>Fuente</th><th>Detectado</th><th>Descripción</th><th>Valoración</th></tr>${c.hallazgos.map(x=>`<tr><td>${esc(x.fuente)}</td><td>${fmtD(x.fecha)}</td><td>${esc(x.descripcion)}</td><td>${esc(x.valoracion)}</td></tr>`).join('')}</table>`:'<p>No registra anotaciones vigentes en las fuentes consultadas.</p>'}
+    <p><strong>Antecedentes vigentes</strong></p>
+    ${c.hallazgos.length?`<table><tr><th>Tipo</th><th>Fuente</th><th>Detectado</th><th>Artículo y norma</th><th>Descripción</th><th>Valoración</th></tr>${c.hallazgos.map(x=>`<tr><td>${esc(x.tipo||'')}</td><td>${esc(x.fuente)}</td><td>${fmtD(x.fecha)}</td><td>${esc(x.norma||'')}</td><td>${esc(x.descripcion)}</td><td>${esc(x.valoracion)}</td></tr>`).join('')}</table>`:'<p>No registra anotaciones vigentes en las fuentes consultadas.</p>'}
     <h3 class="bar">4. Hechos constatados</h3>
     <table><tr><th style="width:45%">Aspecto verificado</th><th style="width:18%">Resultado</th><th>Observación</th></tr>${c.checklist.map(x=>`<tr><td>${esc(x.t)}</td><td>${esc(x.kind==='res'?x.r:x.v)}</td><td>${esc(x.obs)}</td></tr>`).join('')}</table>
     ${para(c.hechos)}
@@ -1206,6 +1392,15 @@ function imprimirInforme(id, v){
   window.addEventListener('afterprint', done);
   setTimeout(()=>window.print(), 60);
 }
+function eliminarEstudio(){
+  const id=$('#estform').dataset.id; const e=S.db.estudios.find(x=>x.id===id); const p=P(e.personaId);
+  const nv=e.informe?e.informe.versiones.length:0;
+  openDialog({title:'Eliminar estudio', danger:true, submit:'Eliminar estudio', body:`<p>Se eliminará definitivamente el estudio ${esc(e.codigo)} de ${esc(nombre(p))}${nv?`, con las ${nv} versión(es) del informe ${esc(e.informe.codigo)}`:''}. No cuenta más para cumplimiento ni cifras.</p><p class="hint">La bitácora conserva la constancia de la eliminación${nv?' y la de cada emisión del informe con su huella SHA-256':''}. Si solo debe dejarlo sin efecto y conservarlo, use «Anular estudio».</p>${nv?`<label class="f"><span>Escriba ELIMINAR para confirmar</span><input type="text" name="conf" autocomplete="off"></label>`:''}`,
+    onSubmit:o=>{ if(nv && o.conf!=='ELIMINAR') return 'Escriba ELIMINAR para confirmar.';
+      S.db.estudios=S.db.estudios.filter(x=>x.id!==id); S.estDirty=false;
+      log('Estudio eliminado', e.codigo, `Persona ${p.codigo}; estado ${e.estado}${nv?`; informe ${e.informe.codigo} con ${nv} versión(es)`:''}`);
+      mutate(); toast('Estudio eliminado'); S.skipHash=false; location.hash='#/persona/'+p.id; }});
+}
 function anularEstudio(){
   const id=$('#estform').dataset.id; const e=S.db.estudios.find(x=>x.id===id); const p=P(e.personaId);
   openDialog({title:'Anular estudio', danger:true, submit:'Anular estudio', body:`<p>El estudio ${esc(e.codigo)} quedará anulado: se conserva para trazabilidad, pero no cuenta para cumplimiento ni cifras.${e.informe?' Los informes emitidos se conservan.':''}</p><label class="f"><span>Motivo</span><input type="text" name="motivo"></label>`,
@@ -1215,22 +1410,22 @@ function anularEstudio(){
 /* ---------- Vencimientos ---------- */
 function vVenc(){
   const u=S.ui.venc; S.listFn=listVenc;
-  const empresas=[...new Set(S.db.personas.map(p=>p.empresa).filter(Boolean))].sort();
+  const empresas=[...new Set([...cfg().empresas, ...S.db.personas.map(p=>p.empresa).filter(Boolean)])];
   return `<div class="page-head"><div><h1>Vencimientos</h1><div class="lead">Autorizaciones faltantes, antecedentes y visitas vencidas o por vencer en los próximos ${cfg().diasAlerta} días, según la periodicidad configurada.</div></div><div class="head-actions"><button class="btn" type="button" data-act="exportVenc">Exportar</button></div></div>
   <div class="filters">
     <label>Asunto<select data-filter="venc.asunto">${opts(['Autorización','Antecedentes','Visita domiciliaria'],u.asunto,'Todos')}</select></label>
     <label>Situación<select data-filter="venc.estado">${opts([{v:'bad',t:'Requiere acción'},{v:'warn',t:'Por vencer'}],u.estado,'Todas')}</select></label>
     <label>Criticidad<select data-filter="venc.critico">${opts([{v:'si',t:'Cargos críticos'},{v:'no',t:'No críticos'}],u.critico,'Todas')}</select></label>
     <label>Vínculo<select data-filter="venc.vinculo">${opts(VINCULOS,u.vinculo,'Todos')}</select></label>
-    <label>Empresa o finca<select data-filter="venc.empresa">${opts(empresas,u.empresa,'Todas')}</select></label>
+    <label>Razón social<select data-filter="venc.empresa">${opts(empresas,u.empresa,'Todas')}</select></label>
   </div><div id="list"></div>`;
 }
-function filtVenc(){ const u=S.ui.venc; return vencimientos().filter(v=>(!u.asunto||v.asunto===u.asunto)&&(!u.estado||v.s===u.estado)&&(!u.vinculo||v.p.vinculo===u.vinculo)&&(!u.empresa||v.p.empresa===u.empresa)&&(u.critico!=='si'||v.p.critico)&&(u.critico!=='no'||!v.p.critico)); }
+function filtVenc(){ const u=S.ui.venc; return vencimientos().filter(v=>(!u.asunto||v.asunto===u.asunto)&&(!u.estado||v.s===u.estado)&&(!u.vinculo||vincTxt(v.p)===u.vinculo)&&(!u.empresa||v.p.empresa===u.empresa)&&(u.critico!=='si'||v.p.critico)&&(u.critico!=='no'||!v.p.critico)); }
 function listVenc(){
   const rows=filtVenc();
   const act=v=> v.asunto==='Antecedentes'?`<button class="btn sm" type="button" data-act="nuevaConsulta" data-pid="${v.p.id}">Registrar consulta</button>`: v.asunto==='Autorización'?`<button class="btn sm" type="button" data-act="nuevaAutorizacion" data-pid="${v.p.id}">Registrar autorización</button>`:`<button class="btn sm" type="button" data-act="nuevoEstudio" data-pid="${v.p.id}">Programar visita</button>`;
-  $('#list').innerHTML = `<p class="resultcount">${fmtN(rows.length)} asuntos</p>${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Persona</th><th>Vínculo y empresa</th><th>Asunto</th><th>Situación</th><th>Detalle</th><th></th></tr></thead><tbody>
-  ${rows.map(v=>`<tr><td><a href="#/persona/${v.p.id}">${esc(nombre(v.p))}</a>${v.p.critico?' <span class="tag crit">Crítico</span>':''}<div class="sub">${esc(v.p.cargo||'')}</div></td><td>${esc(v.p.vinculo)}<div class="sub">${esc(v.p.empresa||'')}</div></td><td>${esc(v.asunto)}</td><td>${stHTML(v.s,v.t)}</td><td class="sub">${esc(v.det)}</td><td>${act(v)}</td></tr>`).join('')}
+  $('#list').innerHTML = `<p class="resultcount">${fmtN(rows.length)} asuntos</p>${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Persona</th><th>Vínculo y razón social</th><th>Asunto</th><th>Situación</th><th>Detalle</th><th></th></tr></thead><tbody>
+  ${rows.map(v=>`<tr><td><a href="#/persona/${v.p.id}">${esc(nombre(v.p))}</a>${v.p.critico?' <span class="tag crit">Crítico</span>':''}<div class="sub">${esc(v.p.cargo||'')}</div></td><td>${esc(vincTxt(v.p))}<div class="sub">${esc(v.p.empresa||'')}</div></td><td>${esc(v.asunto)}</td><td>${stHTML(v.s,v.t)}</td><td class="sub">${esc(v.det)}</td><td>${act(v)}</td></tr>`).join('')}
   </tbody></table></div>`:'<p class="empty">No hay vencimientos con estos filtros.</p>'}`;
 }
 
@@ -1238,7 +1433,7 @@ function listVenc(){
 function vBitacora(){
   S.listFn=listBitacora;
   return `<div class="page-head"><div><h1>Bitácora</h1><div class="lead">Registro de toda actuación, encadenado con huellas SHA-256. No se puede editar ni borrar. Las referencias usan códigos internos, no nombres.</div></div>
-    <div class="head-actions"><button class="btn" type="button" data-act="verificarBitacora">Verificar integridad</button><button class="btn" type="button" data-act="exportBitacora">Exportar</button></div></div>
+    <div class="head-actions"><button class="btn" type="button" data-act="verificarBitacora">Verificar integridad</button><button class="btn" type="button" data-act="verificarDocumento">Verificar un documento</button><button class="btn" type="button" data-act="exportBitacora">Exportar</button></div></div>
   <div id="bitres"></div>
   <div class="filters"><label>Buscar<input type="search" data-filter="bitacora.q" value="${esc(S.ui.bitacora.q)}" placeholder="Acción, código o detalle"></label></div><div id="list"></div>`;
 }
@@ -1266,17 +1461,17 @@ function vConfig(){
   <section class="panel"><h2>Fuentes de consulta</h2><p class="hint" style="margin-top:-6px">Catálogo cerrado. Incluya solo fuentes de consulta lícita; no registre información reservada obtenida por canales no públicos. Las obligatorias determinan si los antecedentes están al día.</p>
     <div class="cfg-src">${c.fuentes.map(f=>`<input type="text" name="fn_${f.id}" value="${esc(f.nombre)}" aria-label="Nombre de la fuente"><label class="chk"><input type="checkbox" name="fo_${f.id}" ${f.obligatoria?'checked':''}> Obligatoria</label><label class="chk"><input type="checkbox" name="fa_${f.id}" ${f.activa?'checked':''}> Activa</label>`).join('')}</div>
     <div class="fgrid" style="margin-top:12px"><label class="f wide"><span>Agregar fuente</span><input type="text" name="nuevaFuente" placeholder="Nombre de la entidad y del registro consultado"></label></div></section>
-  <section class="panel"><h2>Empresas, fincas y valoraciones</h2><div class="fgrid">
-    <label class="f"><span>Empresas y fincas (una por línea)</span><textarea name="empresas" rows="5">${esc(c.empresas.join('\n'))}</textarea></label>
-    <label class="f"><span>Escala de valoración de hallazgos (una por línea)</span><textarea name="valoraciones" rows="5">${esc(c.valoraciones.join('\n'))}</textarea><span class="hint">Aliniéela con el instructivo de valoración de hallazgos vigente.</span></label></div></section>
+  <section class="panel"><h2>Razones sociales y valoraciones</h2><div class="fgrid">
+    <label class="f"><span>Razones sociales (una por línea)</span><textarea name="empresas" rows="5">${esc(c.empresas.join('\n'))}</textarea><span class="hint">Cada persona pertenece a una de ellas. Si cambia un nombre, las personas registradas con el nombre anterior aparecen en «Otras»: selecciónelas en Personas y use «Cambiar razón social».</span></label>
+    <label class="f"><span>Escala de valoración de antecedentes (una por línea)</span><textarea name="valoraciones" rows="5">${esc(c.valoraciones.join('\n'))}</textarea><span class="hint">Alinéela con el instructivo de valoración de antecedentes vigente.</span></label></div></section>
   <section class="panel"><h2>Informes</h2><div class="fgrid">
     <label class="f"><span>Prefijo del código</span><input type="text" name="prefijo" value="${esc(c.prefijoInforme)}"><span class="hint">Provisional hasta su confirmación por Calidad.</span></label>
-    <label class="f"><span>Logotipo (imagen, máximo 300 KB)</span><input type="file" name="logo" accept="image/png,image/jpeg">${c.logo?`<span class="hint">Cargado. <button class="linkbtn" type="button" data-act="quitarLogo">Quitar</button></span>`:''}</label>
+    <label class="f"><span>Logotipo de informes y perfiles (PNG o JPG, máximo 300 KB)</span><input type="file" name="logo" accept="image/png,image/jpeg"><span class="hint">${c.logoDoc?`Se usa un logotipo cargado. <button class="linkbtn" type="button" data-act="quitarLogo">Volver al de la Dirección de Seguridad</button>`:'Se usa el logotipo de la Dirección de Seguridad incluido en la aplicación.'}</span></label>
     <label class="f wide"><span>Fundamento del estudio</span><textarea name="fundamento" rows="3">${esc(c.fundamento)}</textarea></label>
     <label class="f wide"><span>Advertencia de reserva</span><textarea name="advertencia" rows="3">${esc(c.advertencia)}</textarea></label></div></section>
   <section class="panel"><h2>Seguridad y conservación</h2><div class="fgrid">
     <label class="f"><span>Bloqueo por inactividad (minutos)</span><input type="number" min="2" max="60" name="bloqueo" value="${c.autoBloqueoMin}"></label>
-    <label class="f"><span>Conservación tras el retiro (años)</span><input type="number" min="1" max="20" name="retencion" value="${c.retencionAnios}"><span class="hint">Valídelo con el responsable de protección de datos.</span></label></div></section>
+    <label class="f"><span>Conservación tras el retiro o el cierre del proceso del aspirante (años)</span><input type="number" min="1" max="20" name="retencion" value="${c.retencionAnios}"><span class="hint">Valídelo con el responsable de protección de datos.</span></label></div></section>
   <div class="stickybar"><button class="btn primary" type="button" data-act="guardarConfig">Guardar configuración</button></div>
   </form>
   <section class="panel" style="margin-top:16px"><h2>Nube, llaves y respaldo</h2>
@@ -1284,11 +1479,12 @@ function vConfig(){
     <p>Cuenta: <strong>${esc((Nube.usuario()||{}).email||'')}</strong>. Estado: ${esc($('#savestate')?$('#savestate').textContent:'')}.</p>
     <div class="head-actions"><button class="btn" type="button" data-act="sincronizarYa">Sincronizar ahora</button><button class="btn primary" type="button" data-act="respaldo">Descargar respaldo cifrado</button><button class="btn" type="button" data-act="cambiarClave">Cambiar clave de cifrado</button><button class="btn" type="button" data-act="nuevoCodigo">Nuevo código de recuperación</button><button class="btn" type="button" data-act="cambiarAcceso">Cambiar contraseña de acceso</button></div>
     <p class="hint">Descargue un respaldo cifrado al menos una vez al mes y guárdelo en su OneDrive corporativo: protege frente a la pérdida de la cuenta o del proyecto. Se abre con la clave de cifrado vigente al descargarlo.</p></section>
+  <section class="panel"><h2>Instalar en celular, tableta o computador</h2>${instalada()?'<p class="hint" style="margin-top:-6px">Este equipo ya abre la aplicación instalada.</p>':`<p><button class="btn primary" type="button" data-act="instalarApp" ${puedeInstalar()?'':'hidden'}>Instalar en este equipo</button></p>`}${AYUDA_INSTALAR}</section>
   <section class="panel"><h2>Supresión por vencimiento del plazo</h2>
-    ${retirados.length?`<p>${fmtN(retirados.length)} personas retiradas superan el plazo de conservación de ${c.retencionAnios} años.</p><button class="btn" type="button" data-act="suprimirVencidos">Suprimir sus datos</button>`:'<p class="hint">Ninguna persona retirada supera el plazo de conservación.</p>'}</section>
+    ${retirados.length?`<p>${fmtN(retirados.length)} personas retiradas o aspirantes no vinculados superan el plazo de conservación de ${c.retencionAnios} años.</p><button class="btn" type="button" data-act="suprimirVencidos">Suprimir sus datos</button>`:'<p class="hint">Ninguna persona retirada ni aspirante no vinculado supera el plazo de conservación.</p>'}</section>
   <section class="panel"><h2>Este equipo</h2><p class="hint" style="margin-top:-6px">Cerrar sesión conserva la copia cifrada para la próxima vez. Borrar la copia elimina los datos de este navegador; la información en la nube no se afecta. Almacenamiento: ${Store.mode==='idb'?'IndexedDB':'localStorage'}${S.persisted===true?', persistente':''}.</p><div class="head-actions"><button class="btn" type="button" data-act="cerrarSesion">Cerrar sesión</button><button class="btn danger" type="button" data-act="borrarTodo">Borrar la copia de este equipo</button></div></section>`;
 }
-function retiradosVencidos(){ const n=cfg().retencionAnios; return S.db.personas.filter(p=>!p.anon && p.estado==='Retirado' && p.fechaRetiro && addMonths(p.fechaRetiro, n*12)<today()); }
+function retiradosVencidos(){ const n=cfg().retencionAnios; return S.db.personas.filter(p=>!p.anon && (p.estado==='Retirado'||p.estado==='No vinculado') && p.fechaRetiro && addMonths(p.fechaRetiro, n*12)<today()); }
 async function guardarConfig(){
   const f=$('#cfgform'); const o=formObj(f); const c=cfg(); const cambios=[];
   const int=(v,min,max,lbl)=>{ const n=parseInt(v,10); if(isNaN(n)||n<min||n>max) throw new Error(`${lbl}: valor entre ${min} y ${max}.`); return n; };
@@ -1314,7 +1510,7 @@ async function guardarConfig(){
     if(o.prefijo&&o.prefijo!==c.prefijoInforme){ c.prefijoInforme=o.prefijo; cambios.push('prefijo de informe'); }
     if(o.fundamento!==c.fundamento){ c.fundamento=o.fundamento; cambios.push('fundamento'); }
     if(o.advertencia!==c.advertencia){ c.advertencia=o.advertencia; cambios.push('advertencia'); }
-    if(logo){ c.logo=logo; cambios.push('logotipo'); }
+    if(logo){ c.logoDoc=logo; cambios.push('logotipo'); }
   }
   if(!cambios.length){ toast('No hay cambios'); return; }
   log('Configuración modificada', '', [...new Set(cambios)].join(', ')); mutate(); render(); toast('Configuración guardada');
@@ -1341,21 +1537,25 @@ function parseCSV(text){
 }
 async function readTextFile(file){ const buf=await file.arrayBuffer(); let t=new TextDecoder('utf-8').decode(buf); if(t.includes('�')) t=new TextDecoder('windows-1252').decode(buf); return t; }
 const TPL = {
-  personas:['tipo_documento','numero_documento','nombres','apellidos','vinculo','empresa_finca','cargo','area','cargo_critico','estado','fecha_ingreso','municipio_residencia'],
-  consultas:['numero_documento','fecha','fuente','resultado','soporte','observacion']
+  personas:['razon_social','grupo','tipo_documento','numero_documento','nombres','apellidos','vinculo','empresa_contratista','cargo','area','cargo_critico','estado','fecha_ingreso','municipio_residencia'],
+  consultas:['numero_documento','fecha','fuente','resultado','codigo_verificacion','soporte','observacion','tipo_antecedente','articulo','norma']
 };
 function plantilla(tipo){
   const ex = tipo==='personas'
-    ? [['CC','1000000001','Nombre de ejemplo','Apellido de ejemplo','Trabajador Avo Pak','Avo Pak S.A.S.','Auxiliar de despacho','Logística','Sí','Activo','15/03/2025','La Ceja']]
-    : [['1000000001','10/10/2026',cfg().fuentes[0].nombre,'Sin registro','Carpeta del expediente','']];
+    ? [[cfg().empresas[0]||'Avo Pak S.A.S.','Vinculado','CC','1000000001','Nombre de ejemplo','Apellido de ejemplo','Trabajador directo','','Auxiliar de despacho','Logística','Sí','Activo','15/03/2025','La Ceja'],
+       [cfg().empresas[0]||'Avo Pak S.A.S.','Aspirante','CC','1000000002','Nombre de ejemplo','Aspirante de ejemplo','','','Operario de empaque','Producción','No','En selección','','Rionegro']]
+    : [['1000000001','10/10/2026',cfg().fuentes[0].nombre,'Sin registro','ABC123456','Carpeta del expediente','','','','']];
   exportCSV(`plantilla-${tipo}.csv`, TPL[tipo], ex);
 }
-function mapVinculo(v){ const n=norm(v); if(!n) return null; if(n.startsWith('trab')||n.includes('avo')) return VINCULOS[0]; if(n.includes('finca')) return VINCULOS[1]; if(n.startsWith('contrat')) return VINCULOS[2]; if(n.startsWith('aspir')) return VINCULOS[3]; return null; }
-function mapEstado(v){ const n=norm(v); if(!n||n.startsWith('activ')) return 'Activo'; if(n.includes('selec')) return 'En selección'; if(n.startsWith('retir')) return 'Retirado'; return null; }
+function mapVinculo(v){ const n=norm(v); if(!n) return null; if(n.startsWith('trab')||n.includes('avo')||n.includes('direct')) return VINCULOS[0]; if(n.includes('finca')) return VINCULOS[1]; if(n.startsWith('contrat')) return VINCULOS[2]; if(n.startsWith('aspir')) return VINCULOS[3]; return null; }
+function mapEstado(v, asp){ const n=norm(v); if(!n) return asp?'En selección':'Activo'; if(n.startsWith('activ')) return asp?'En selección':'Activo'; if(n.includes('selec')) return asp?'En selección':null; if(n.startsWith('retir')) return asp?'No vinculado':'Retirado'; if(n.startsWith('no vinc')) return asp?'No vinculado':null; return null; }
+function mapRazon(v){ const n=norm(v); if(!n) return ''; const l=cfg().empresas; return l.find(e=>norm(e)===n) || l.find(e=>norm(e).startsWith(n)||n.startsWith(norm(e))) || String(v).trim(); }
+function mapTipoAnt(v){ const n=norm(v); if(!n) return ''; if(n.startsWith('pen')) return TIPOS_ANT[0]; if(n.startsWith('jud')) return TIPOS_ANT[1]; if(n.startsWith('adm')||n.startsWith('disc')||n.startsWith('fisc')) return TIPOS_ANT[2]; if(n.includes('transit')) return TIPOS_ANT[3]; return ''; }
 function mapBool(v){ return ['si','s','x','1','true','verdadero','critico'].includes(norm(v)); }
 function analizarImport(tipo, rows){
   const head=rows[0].map(h=>norm(h).replace(/\s+/g,'_'));
   const need=TPL[tipo]; const miss=need.filter(n=>!head.includes(n) && ['numero_documento','nombres','fecha','fuente','resultado'].includes(n));
+  if(tipo==='personas' && !head.includes('razon_social') && !head.includes('empresa_finca')) miss.push('razon_social');
   if(miss.length) return {fatal:`Faltan columnas obligatorias: ${miss.join(', ')}. Use la plantilla.`};
   const col=k=>head.indexOf(k);
   const get=(r,k)=>{ const i=col(k); return i<0?'':String(r[i]??'').trim(); };
@@ -1363,9 +1563,11 @@ function analizarImport(tipo, rows){
   rows.slice(1).forEach((r,i)=>{
     const line=i+2;
     if(tipo==='personas'){
-      const o={tipoDoc:(get(r,'tipo_documento')||'CC').toUpperCase(), doc:get(r,'numero_documento').replace(/[.\s]/g,''), nombres:get(r,'nombres'), apellidos:get(r,'apellidos'), vinculo:mapVinculo(get(r,'vinculo')), empresa:get(r,'empresa_finca'), cargo:get(r,'cargo'), area:get(r,'area'), critico:mapBool(get(r,'cargo_critico')), estado:mapEstado(get(r,'estado')), fechaIngreso:parseDateLoose(get(r,'fecha_ingreso'))||'', municipio:get(r,'municipio_residencia')};
+      const grupoTx=norm(get(r,'grupo')); const vinc=mapVinculo(get(r,'vinculo'));
+      const asp = grupoTx.startsWith('aspir') || vinc==='Aspirante' || (!grupoTx && /selec/.test(norm(get(r,'estado'))));
+      const o={tipoDoc:(get(r,'tipo_documento')||'CC').toUpperCase(), doc:get(r,'numero_documento').replace(/[.\s]/g,''), nombres:get(r,'nombres'), apellidos:get(r,'apellidos'), vinculo:asp?'Aspirante':vinc, empresa:mapRazon(get(r,'razon_social')||get(r,'empresa_finca')), contratista:vinc==='Contratista'&&!asp?get(r,'empresa_contratista'):'', cargo:get(r,'cargo'), area:get(r,'area'), critico:mapBool(get(r,'cargo_critico')), estado:mapEstado(get(r,'estado'), asp), fechaIngreso:asp?'':(parseDateLoose(get(r,'fecha_ingreso'))||''), municipio:get(r,'municipio_residencia')};
       if(!TIPOS_DOC.includes(o.tipoDoc)) o.tipoDoc='Otro';
-      const e=[]; if(!o.doc) e.push('sin documento'); if(!o.nombres) e.push('sin nombres'); if(!o.vinculo) e.push('vínculo no reconocido'); if(!o.estado) e.push('estado no reconocido'); if(get(r,'fecha_ingreso')&&!o.fechaIngreso) e.push('fecha de ingreso inválida');
+      const e=[]; if(!o.doc) e.push('sin documento'); if(!o.nombres) e.push('sin nombres'); if(!o.empresa) e.push('sin razón social'); if(!o.vinculo) e.push('vínculo no reconocido'); if(!o.estado) e.push('estado no reconocido'); if(!asp&&get(r,'fecha_ingreso')&&!o.fechaIngreso) e.push('fecha de ingreso inválida');
       const key=o.tipoDoc+'|'+o.doc; if(o.doc&&seen.has(key)) e.push('documento repetido en el archivo'); seen.add(key);
       if(e.length) errs.push(`Fila ${line}: ${e.join('; ')}`); else ok.push(o);
     } else {
@@ -1373,7 +1575,7 @@ function analizarImport(tipo, rows){
       const fecha=parseDateLoose(get(r,'fecha')); const fn=norm(get(r,'fuente')); const f=cfg().fuentes.find(x=>norm(x.nombre)===fn)||cfg().fuentes.find(x=>fn&&norm(x.nombre).startsWith(fn));
       const rn=norm(get(r,'resultado')); const res = rn.startsWith('sin')?'Sin registro': rn.startsWith('con')?'Con registro': rn.startsWith('no')?'No concluyente':null;
       const e=[]; if(!p) e.push('persona no registrada'); if(!fecha||fecha>today()) e.push('fecha inválida o futura'); if(!f) e.push('fuente no reconocida'); if(!res) e.push('resultado no reconocido');
-      if(e.length) errs.push(`Fila ${line}: ${e.join('; ')}`); else ok.push({p, o:{fecha, fuente:f.id, resultado:res, soporte:get(r,'soporte'), obs:get(r,'observacion'), hDesc:get(r,'observacion')||'Registro hallado en importación histórica; ver soporte', hVal:cfg().valoraciones[1]||cfg().valoraciones[0]}});
+      if(e.length) errs.push(`Fila ${line}: ${e.join('; ')}`); else ok.push({p, o:{fecha, fuente:f.id, resultado:res, codigoVerificacion:get(r,'codigo_verificacion'), soporte:get(r,'soporte'), obs:get(r,'observacion'), hTipo:mapTipoAnt(get(r,'tipo_antecedente')), hArticulo:get(r,'articulo'), hNorma:get(r,'norma'), hDesc:get(r,'observacion')||'Antecedente hallado en importación histórica; ver soporte', hVal:cfg().valoraciones[1]||cfg().valoraciones[0]}});
     }
   });
   return {ok, errs};
@@ -1385,8 +1587,8 @@ function importar(tipo){
     <p class="hint">Prepare el archivo en Excel con las columnas de la plantilla y guárdelo como CSV (delimitado por punto y coma o comas). Las fechas pueden ir como dd/mm/aaaa.</p>
     <p><button class="btn sm" type="button" data-act="plantilla" data-tipo="${tipo}">Descargar plantilla</button></p>
     ${tipo==='personas'
-      ?`<p class="hint">Vínculo admitido: ${VINCULOS.join(', ')}. Estado: ${ESTADOS_P.join(', ')}. Cargo crítico: Sí o No.</p><label class="chk"><input type="checkbox" name="actualizar"> Actualizar los datos de personas ya registradas con el mismo documento</label>`
-      :`<p class="hint">Las personas deben estar registradas antes. Fuentes admitidas: ${cfg().fuentes.map(f=>esc(f.nombre)).join('; ')}. Resultado: Sin registro, Con registro o No concluyente. Cada fila "Con registro" crea un registro hallado vigente.</p>`}
+      ?`<p class="hint">Razón social: ${cfg().empresas.map(esc).join(', ')}. Grupo: Vinculado o Aspirante. Vínculo de los vinculados: ${TIPOS_VINC.join(', ')}. Estado: Activo o Retirado para vinculados; En selección o No vinculado para aspirantes. Cargo crítico: Sí o No.</p><label class="chk"><input type="checkbox" name="actualizar"> Actualizar los datos de personas ya registradas con el mismo documento</label>`
+      :`<p class="hint">Las personas deben estar registradas antes. Fuentes admitidas: ${cfg().fuentes.map(f=>esc(f.nombre)).join('; ')}. Resultado: Sin registro, Con registro o No concluyente. Cada fila "Con registro" crea un antecedente vigente; tipo_antecedente admite Penal, Judicial, Administrativo o Tránsito.</p>`}
     <label class="f" style="margin-top:12px"><span>Archivo CSV</span><input type="file" name="archivo" accept=".csv,text/csv,text/plain"></label>
     <div id="impprev"></div>`,
     onOpen:f=>{ f.archivo.addEventListener('change', async()=>{ const file=f.archivo.files[0]; const box=$('#impprev'); parsed=null; if(!file){ box.innerHTML=''; return; }
@@ -1402,8 +1604,8 @@ function importar(tipo){
         if(nuevosDoc.size){ const e2=await reservarSeq('persona', nuevosDoc.size); if(e2) return e2; }
         let nuevos=0, act=0, omit=0;
         for(const r of parsed.ok){ const ex=S.db.personas.find(p=>!p.anon&&p.tipoDoc===r.tipoDoc&&norm(p.doc)===norm(r.doc));
-          if(ex){ if(o.actualizar){ for(const k of ['nombres','apellidos','vinculo','empresa','cargo','area','estado','fechaIngreso','municipio']) if(r[k]) ex[k]=r[k]; ex.critico=r.critico; if(ex.estado==='Retirado'&&!ex.fechaRetiro) ex.fechaRetiro=today(); ex.actualizado=nowISO(); act++; } else omit++; }
-          else { if(r.estado==='Retirado') r.fechaRetiro=today(); crearPersona(r); nuevos++; } }
+          if(ex){ if(o.actualizar){ for(const k of ['nombres','apellidos','vinculo','empresa','contratista','cargo','area','estado','fechaIngreso','municipio']) if(r[k]) ex[k]=r[k]; ex.critico=r.critico; if((ex.estado==='Retirado'||ex.estado==='No vinculado')&&!ex.fechaRetiro) ex.fechaRetiro=today(); ex.actualizado=nowISO(); act++; } else omit++; }
+          else { if(r.estado==='Retirado'||r.estado==='No vinculado') r.fechaRetiro=today(); crearPersona(r); nuevos++; } }
         log('Importación de personas', '', `${nuevos} nuevas; ${act} actualizadas; ${omit} omitidas por existir; ${parsed.errs.length} filas con error`);
         mutate(); render(); toast(`${nuevos} personas importadas`);
       } else {
@@ -1416,46 +1618,261 @@ function importar(tipo){
 }
 
 /* =====================================================================
-   Descarga de perfil
+   Perfil descargable en PDF y Word, con huella SHA-256 registrada en la bitácora
    ===================================================================== */
-async function descargarPerfil(id){
+async function sha256Bytes(u8){ const h=await crypto.subtle.digest('SHA-256', u8); return Array.from(new Uint8Array(h),b=>b.toString(16).padStart(2,'0')).join(''); }
+function cargarScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=()=>res(); s.onerror=()=>rej(new Error('no se pudo cargar el componente de documentos; revise la conexión e intente de nuevo')); document.head.appendChild(s); }); }
+async function libPDF(){
+  if(!(window.jspdf && window.jspdf.jsPDF)) await cargarScript('js/vendor/jspdf.umd.min.js?v='+VER);
+  if(!(window.jspdf.jsPDF.API && window.jspdf.jsPDF.API.autoTable) && typeof window.autoTable!=='function') await cargarScript('js/vendor/jspdf.plugin.autotable.min.js?v='+VER);
+  return window.jspdf.jsPDF;
+}
+async function logoDoc(){
+  const L=cfg().logoDoc; let u8=null, tipo='PNG';
+  if(L){ const m=/^data:image\/(png|jpe?g);base64,(.*)$/i.exec(L); if(m){ u8=unb64(m[2]); tipo=/png/i.test(m[1])?'PNG':'JPEG'; } }
+  if(!u8){ const r=await fetch('img/logo-doc.png'); if(!r.ok) throw new Error('no se encontró el logotipo'); u8=new Uint8Array(await r.arrayBuffer()); tipo='PNG'; }
+  const dim=await new Promise(res=>{ const img=new Image(); const url=URL.createObjectURL(new Blob([u8],{type:tipo==='PNG'?'image/png':'image/jpeg'})); img.onload=()=>{ res({w:img.naturalWidth, h:img.naturalHeight}); URL.revokeObjectURL(url); }; img.onerror=()=>{ res({w:640, h:566}); URL.revokeObjectURL(url); }; img.src=url; });
+  return {u8, tipo, w:dim.w||640, h:dim.h||566};
+}
+function perfilData(p, conLev){
+  const I=idx(), c=cumpl(p);
+  const halls=(I.hall.get(p.id)||[]).filter(h=>!h.anulado && (conLev || h.estado==='Vigente')).sort((a,b)=>(TIPOS_ANT.indexOf(a.tipo)+1||9)-(TIPOS_ANT.indexOf(b.tipo)+1||9) || b.fechaDeteccion.localeCompare(a.fechaDeteccion));
+  const cons=(I.cons.get(p.id)||[]).filter(x=>!x.anulada).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const auts=(I.aut.get(p.id)||[]).slice().sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const ests=(I.est.get(p.id)||[]).filter(e=>e.estado!=='Anulado').sort((a,b)=>(b.fechaRealizacion||b.fechaProgramada||'').localeCompare(a.fechaRealizacion||a.fechaProgramada||''));
+  return {
+    persona:{codigo:p.codigo, nombre:nombre(p), documento:`${p.tipoDoc} ${p.doc}`, razonSocial:p.empresa||'', grupo:grupoTxt(p), vinculo:esAsp(p)?'':vincTxt(p), contratista:p.contratista||'', cargo:p.cargo||'', area:p.area||'', critico:!!p.critico, estado:p.estado, fechaIngreso:esAsp(p)?'':(p.fechaIngreso||''), fechaRetiro:p.fechaRetiro||'', municipio:p.municipio||''},
+    cumplimiento:[['Autorización de datos', c.aut.t, c.aut.det||''], ['Consultas de antecedentes', c.ant.t, c.ant.det||''], ['Visita domiciliaria', c.vis.t, c.vis.det||'']],
+    antecedentes:halls.map(h=>({tipo:h.tipo||'Sin tipo', detectado:h.fechaDeteccion, fechaHecho:h.fechaHecho||'', fuente:fuenteNom(h.fuenteId), autoridad:h.autoridad||'', radicado:h.radicado||'', articuloNorma:artNorma(h), descripcion:h.descripcion||'', valoracion:h.valoracion||'', estado:h.estado, levantado:h.fechaLevantamiento||''})),
+    porTipo:TIPOS_ANT.map(t=>[t, halls.filter(h=>h.estado==='Vigente'&&h.tipo===t).length]),
+    consultas:cons.map(x=>({fecha:x.fecha, fuente:fuenteNom(x.fuenteId), resultado:x.resultado, codigoVerificacion:x.codigoVerificacion||'', soporte:x.soporte||''})),
+    autorizaciones:auts.map(a=>({tipo:a.tipo, fecha:a.fecha, version:a.version||'', estado:a.estado==='Vigente'?'Vigente':`Revocada el ${fmtD(a.fechaRevocatoria)}`})),
+    estudios:ests.map(e=>({codigo:e.codigo, tipo:e.tipo, visita:e.incluyeVisita?'Sí':'No', fecha:e.fechaRealizacion||e.fechaProgramada||'', estado:e.estado, concepto:e.concepto||'', informe:e.informe?`${e.informe.codigo} v${e.informe.versiones.length}`:''})),
+    levantadosIncluidos:!!conLev,
+    advertencia:cfg().advertencia
+  };
+}
+// Filas comunes a ambos formatos
+function perfilFilas(d){
+  const P_=d.persona;
+  return {
+    ident:[['Nombre',P_.nombre],['Documento',P_.documento],['Código interno',P_.codigo],['Razón social',P_.razonSocial||'Sin razón social'],['Grupo',P_.grupo+(P_.vinculo?` (${P_.vinculo})`:'')],...(P_.contratista?[['Empresa contratista',P_.contratista]]:[]),[P_.grupo==='Aspirante'?'Cargo al que aspira':'Cargo',(P_.cargo||'Sin cargo')+(P_.critico?' (cargo crítico)':'')],['Área',P_.area||'Sin área'],['Estado',P_.estado+(P_.fechaRetiro?` desde ${fmtD(P_.fechaRetiro)}`:'')],...(P_.fechaIngreso?[['Fecha de ingreso',fmtD(P_.fechaIngreso)]]:[]),['Municipio de residencia',P_.municipio||'Sin dato']],
+    resumenTipos:'Antecedentes vigentes por tipo: '+d.porTipo.map(([t,n])=>`${t.toLowerCase()}, ${n}`).join('; ')+'.',
+    ant:d.antecedentes.map(a=>[a.tipo, fmtD(a.detectado)+(a.fechaHecho?`\nHecho: ${fmtD(a.fechaHecho)}`:''), a.fuente+(a.autoridad?`\n${a.autoridad}`:''), a.articuloNorma+(a.radicado?`\n${a.radicado}`:''), a.descripcion, a.valoracion+'\n'+(a.estado==='Vigente'?'Vigente':`Levantado el ${fmtD(a.levantado)}`)]),
+    cons:d.consultas.map(c=>[fmtD(c.fecha), c.fuente, c.resultado, c.codigoVerificacion, c.soporte]),
+    auts:d.autorizaciones.map(a=>[a.tipo, fmtD(a.fecha), a.version, a.estado]),
+    ests:d.estudios.map(e=>[e.codigo, e.tipo, e.visita, fmtD(e.fecha), e.estado, e.concepto, e.informe])
+  };
+}
+const H_ANT=['Tipo','Detectado','Fuente y autoridad','Artículo y norma','Descripción','Valoración y estado'];
+const H_CONS=['Fecha','Fuente','Resultado','Código de verificación','Soporte'];
+const H_AUT=['Tipo','Fecha','Formato y versión','Estado'];
+const H_EST=['Código','Tipo','Visita','Fecha','Estado','Concepto','Informe'];
+// Los tipos estándar del PDF solo admiten Latin-1: se reemplazan los signos tipográficos que no lo son
+const lat1 = s => String(s??'').replace(/[‐-―]/g,'-').replace(/[‘’‚]/g,"'").replace(/[“”„]/g,'"').replace(/…/g,'...').replace(/•/g,'-').replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF]/g,'?');
+
+async function perfilPDF(d, meta, hash, logo){
+  const jsPDF=await libPDF();
+  const doc=new jsPDF({unit:'mm', format:'letter', compress:true});
+  doc.setProperties({title:lat1(`Perfil de seguridad ${d.persona.codigo}`), subject:lat1('Dirección de Seguridad Integral, Avo Pak S.A.S.'), author:lat1(meta.emisor.nombre), creator:'Estudios de seguridad de personal '+VER, keywords:'SHA-256 '+hash});
+  const PW=doc.internal.pageSize.getWidth(), PH=doc.internal.pageSize.getHeight(), M=14, TOP=40, BOT=22, CW=PW-2*M;
+  const VERDE=[76,110,69], VERDE_C=[233,239,227], TXT=[33,33,33];
+  const R=perfilFilas(d);
+  let y=TOP;
+  const salto=h=>{ if(y+h>PH-BOT){ doc.addPage(); y=TOP; } };
+  const seccion=t=>{ salto(18); doc.setFillColor(...VERDE); doc.rect(M,y,CW,6.6,'F'); doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(255,255,255); doc.text(lat1(t), M+2.2, y+4.6); doc.setTextColor(...TXT); y+=8.6; };
+  const parrafo=(t,{size=8.8, style='normal', color=TXT}={})=>{ doc.setFont('helvetica',style); doc.setFontSize(size); doc.setTextColor(...color); for(const ln of doc.splitTextToSize(lat1(t), CW)){ salto(4.4); doc.text(ln, M, y+3.3); y+=4.2; } y+=1.6; doc.setTextColor(...TXT); };
+  const base={theme:'grid', margin:{left:M, right:M, top:TOP, bottom:BOT}, styles:{font:'helvetica', fontSize:8.2, cellPadding:1.5, lineColor:[185,185,185], lineWidth:0.2, textColor:TXT, overflow:'linebreak', valign:'top'}, headStyles:{fillColor:VERDE_C, textColor:[40,40,40], fontStyle:'bold'}, rowPageBreak:'avoid'};
+  const tabla=(head, body, anchos, extra={})=>{ const columnStyles={}; anchos.forEach((w,i)=>{ columnStyles[i]={cellWidth:w}; }); Object.assign(columnStyles, extra.columnStyles||{});
+    const o={...base, ...extra, columnStyles, startY:y, head:head?[head.map(lat1)]:undefined, body:body.map(r=>r.map(x=>lat1(x)))};
+    if(typeof doc.autoTable==='function') doc.autoTable(o); else window.autoTable(doc,o); y=doc.lastAutoTable.finalY+4; };
+  const vacio=t=>parrafo(t,{size:8.5, style:'italic', color:[90,90,90]});
+
+  seccion('1. Identificación');
+  tabla(null, R.ident, [52, CW-52], {columnStyles:{0:{cellWidth:52, fontStyle:'bold', fillColor:[245,247,242]}}});
+  seccion('2. Situación de cumplimiento');
+  tabla(['Asunto','Situación','Detalle'], d.cumplimiento, [52, 32, CW-84]);
+  seccion(d.levantadosIncluidos?'3. Antecedentes (incluye levantados)':'3. Antecedentes vigentes');
+  parrafo(R.resumenTipos, {size:8.5});
+  if(R.ant.length) tabla(H_ANT, R.ant, [24, 19, 36, 32, 50, CW-161]); else vacio('No registra antecedentes vigentes en las fuentes consultadas.');
+  seccion('4. Consultas de antecedentes');
+  if(R.cons.length) tabla(H_CONS, R.cons, [18, 52, 22, 40, CW-132]); else vacio('Sin consultas registradas.');
+  seccion('5. Autorizaciones de tratamiento de datos');
+  if(R.auts.length) tabla(H_AUT, R.auts, [74, 20, 44, CW-138]); else vacio('Sin autorizaciones registradas.');
+  seccion('6. Estudios de seguridad y visitas');
+  if(R.ests.length) tabla(H_EST, R.ests, [26, 30, 13, 19, 22, 40, CW-150]); else vacio('Sin estudios registrados.');
+  seccion('7. Advertencia');
+  parrafo(d.advertencia);
+  salto(30); y+=14; doc.setDrawColor(0); doc.setLineWidth(0.3); doc.line(M, y, M+80, y); y+=4.2;
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text(lat1(meta.emisor.nombre), M, y); y+=4.2; doc.text(lat1(meta.emisor.cargo), M, y); y+=4.2; doc.text('Avo Pak S.A.S.', M, y);
+
+  const n=doc.getNumberOfPages(); const lw=22*logo.w/logo.h;
+  for(let i=1;i<=n;i++){
+    doc.setPage(i);
+    doc.addImage(logo.u8, logo.tipo, M, 9, lw, 22, 'logo', 'FAST');
+    const xT=M+lw+5, xR=PW-M-62;
+    doc.setTextColor(...TXT); doc.setFont('helvetica','bold'); doc.setFontSize(11.5); doc.text(lat1('Dirección de Seguridad Integral'), xT, 15.5);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.text(lat1('Perfil de seguridad de personal'), xT, 21);
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.6); doc.setTextColor(158,42,43); doc.text(lat1('Información confidencial. Circulación restringida.'), xT, 26.5);
+    doc.setDrawColor(...VERDE); doc.setLineWidth(0.3); doc.rect(xR, 9, 62, 22);
+    doc.setTextColor(...TXT); doc.setFont('helvetica','normal'); doc.setFontSize(7.8);
+    doc.text(lat1('Documento: '+meta.documento), xR+2.5, 14.5); doc.text(lat1('Emisión: '+fmtDT(meta.emitido)), xR+2.5, 19.5); doc.text(lat1(`Página ${i} de ${n}`), xR+2.5, 24.5); doc.text(lat1('Formato: PDF'), xR+2.5, 29);
+    doc.setDrawColor(...VERDE); doc.setLineWidth(0.6); doc.line(M, 34.5, PW-M, 34.5);
+    doc.setDrawColor(170,170,170); doc.setLineWidth(0.2); doc.line(M, PH-16, PW-M, PH-16);
+    doc.setFont('helvetica','normal'); doc.setFontSize(6.6); doc.setTextColor(70,70,70);
+    doc.text(lat1('Huella SHA-256 del contenido: '+hash), M, PH-12.5);
+    doc.text(lat1('Generado por la aplicación de estudios de seguridad de personal. Verifique la autenticidad del archivo en Bitácora, «Verificar un documento».'), M, PH-9.3);
+  }
+  return new Uint8Array(doc.output('arraybuffer'));
+}
+
+/* ---------- Word (.docx) sin dependencias: OOXML mínimo en un ZIP sin compresión ---------- */
+const CRC_T=(()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1); t[n]=c>>>0; } return t; })();
+function crc32(u8){ let c=0xFFFFFFFF; for(let i=0;i<u8.length;i++) c=CRC_T[(c^u8[i])&0xFF]^(c>>>8); return (c^0xFFFFFFFF)>>>0; }
+function zipStore(files){
+  const d=new Date(), tm=(d.getHours()<<11)|(d.getMinutes()<<5)|(d.getSeconds()>>1), dt=((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate();
+  const loc=[], cen=[]; let off=0;
+  for(const f of files){
+    const name=TE.encode(f.name), data=f.data instanceof Uint8Array?f.data:TE.encode(f.data), crc=crc32(data);
+    const h=new DataView(new ArrayBuffer(30)); h.setUint32(0,0x04034b50,true); h.setUint16(4,20,true); h.setUint16(6,0x0800,true); h.setUint16(8,0,true); h.setUint16(10,tm,true); h.setUint16(12,dt,true); h.setUint32(14,crc,true); h.setUint32(18,data.length,true); h.setUint32(22,data.length,true); h.setUint16(26,name.length,true); h.setUint16(28,0,true);
+    loc.push(new Uint8Array(h.buffer), name, data);
+    const c=new DataView(new ArrayBuffer(46)); c.setUint32(0,0x02014b50,true); c.setUint16(4,20,true); c.setUint16(6,20,true); c.setUint16(8,0x0800,true); c.setUint16(10,0,true); c.setUint16(12,tm,true); c.setUint16(14,dt,true); c.setUint32(16,crc,true); c.setUint32(20,data.length,true); c.setUint32(24,data.length,true); c.setUint16(28,name.length,true); c.setUint16(30,0,true); c.setUint16(32,0,true); c.setUint16(34,0,true); c.setUint16(36,0,true); c.setUint32(38,0,true); c.setUint32(42,off,true);
+    cen.push(new Uint8Array(c.buffer), name);
+    off+=30+name.length+data.length;
+  }
+  const csz=cen.reduce((a,b)=>a+b.length,0);
+  const e=new DataView(new ArrayBuffer(22)); e.setUint32(0,0x06054b50,true); e.setUint16(4,0,true); e.setUint16(6,0,true); e.setUint16(8,files.length,true); e.setUint16(10,files.length,true); e.setUint32(12,csz,true); e.setUint32(16,off,true); e.setUint16(20,0,true);
+  const parts=[...loc, ...cen, new Uint8Array(e.buffer)]; const out=new Uint8Array(parts.reduce((a,b)=>a+b.length,0)); let k=0; for(const p of parts){ out.set(p,k); k+=p.length; } return out;
+}
+const XE = s => String(s??'').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g,'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function wR(t,{b=false,i=false,color='',sz=18}={}){ return String(t??'').split('\n').map((x,k)=>`<w:r><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>${b?'<w:b/>':''}${i?'<w:i/>':''}${color?`<w:color w:val="${color}"/>`:''}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr>${k?'<w:br/>':''}<w:t xml:space="preserve">${XE(x)}</w:t></w:r>`).join(''); }
+function wP(runs,{jc='',fill='',before=0,after=80,keep=false}={}){ return `<w:p><w:pPr>${keep?'<w:keepNext/>':''}${fill?`<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>`:''}<w:spacing w:before="${before}" w:after="${after}"/>${jc?`<w:jc w:val="${jc}"/>`:''}</w:pPr>${runs}</w:p>`; }
+const W_BORDES=['top','left','bottom','right','insideH','insideV'].map(s=>`<w:${s} w:val="single" w:sz="4" w:space="0" w:color="B9B9B9"/>`).join('');
+function wTbl(cols, rows, {head=null, kv=false}={}){
+  const tot=cols.reduce((a,b)=>a+b,0);
+  const tc=(t,i,h,fill)=>`<w:tc><w:tcPr><w:tcW w:w="${cols[i]}" w:type="dxa"/>${fill?`<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>`:''}</w:tcPr>${wP(wR(t,{b:h,sz:16}),{after:0})}</w:tc>`;
+  const tr=(cells,h)=>`<w:tr><w:trPr><w:cantSplit/>${h?'<w:tblHeader/>':''}</w:trPr>${cells.map((c,i)=>tc(c,i,h||(kv&&i===0),h?'E9EFE3':(kv&&i===0?'F5F7F2':''))).join('')}</w:tr>`;
+  return `<w:tbl><w:tblPr><w:tblW w:w="${tot}" w:type="dxa"/><w:tblBorders>${W_BORDES}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:top w:w="30" w:type="dxa"/><w:left w:w="70" w:type="dxa"/><w:bottom w:w="30" w:type="dxa"/><w:right w:w="70" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${cols.map(w=>`<w:gridCol w:w="${w}"/>`).join('')}</w:tblGrid>${head?tr(head,true):''}${rows.map(r=>tr(r,false)).join('')}</w:tbl>${wP('',{after:40})}`;
+}
+function wImg(rid, cx, cy){
+  return `<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/><wp:docPr id="1" name="Logotipo"/><wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="logotipo"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="${rid}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>`;
+}
+async function perfilDOCX(d, meta, hash, logo){
+  const R=perfilFilas(d);
+  const ext=logo.tipo==='PNG'?'png':'jpeg';
+  const cy=Math.round(0.95*914400), cx=Math.round(cy*logo.w/logo.h);
+  const sec=t=>wP(wR(t,{b:true,color:'FFFFFF',sz:19}),{fill:'4C6E45', before:160, after:80, keep:true});
+  const vacio=t=>wP(wR(t,{i:true,color:'555555',sz:17}));
+  const encab=`<w:tbl><w:tblPr><w:tblW w:w="10240" w:type="dxa"/><w:tblBorders>${W_BORDES}</w:tblBorders><w:tblLayout w:type="fixed"/></w:tblPr><w:tblGrid><w:gridCol w:w="1900"/><w:gridCol w:w="4940"/><w:gridCol w:w="3400"/></w:tblGrid><w:tr>
+    <w:tc><w:tcPr><w:tcW w:w="1900" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${wP(wImg('rId2',cx,cy),{jc:'center', after:0})}</w:tc>
+    <w:tc><w:tcPr><w:tcW w:w="4940" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${wP(wR('Dirección de Seguridad Integral',{b:true,sz:23}),{jc:'center',after:40})}${wP(wR('Perfil de seguridad de personal',{sz:20}),{jc:'center',after:40})}${wP(wR('Información confidencial. Circulación restringida.',{b:true,color:'9E2A2B',sz:15}),{jc:'center',after:0})}</w:tc>
+    <w:tc><w:tcPr><w:tcW w:w="3400" w:type="dxa"/><w:vAlign w:val="center"/></w:tcPr>${wP(wR('Documento: '+meta.documento,{sz:16}),{after:20})}${wP(wR('Emisión: '+fmtDT(meta.emitido),{sz:16}),{after:20})}${wP(wR('Formato: Word',{sz:16}),{after:0})}</w:tc>
+  </w:tr></w:tbl>${wP('',{after:60})}`;
+  const cuerpo=[
+    encab,
+    sec('1. Identificación'), wTbl([3000,7240], R.ident, {kv:true}),
+    sec('2. Situación de cumplimiento'), wTbl([3000,1900,5340], d.cumplimiento, {head:['Asunto','Situación','Detalle']}),
+    sec(d.levantadosIncluidos?'3. Antecedentes (incluye levantados)':'3. Antecedentes vigentes'), wP(wR(R.resumenTipos,{sz:17})),
+    R.ant.length?wTbl([1300,1100,2100,1800,2540,1400], R.ant, {head:H_ANT}):vacio('No registra antecedentes vigentes en las fuentes consultadas.'),
+    sec('4. Consultas de antecedentes'), R.cons.length?wTbl([1050,2950,1300,2300,2640], R.cons, {head:H_CONS}):vacio('Sin consultas registradas.'),
+    sec('5. Autorizaciones de tratamiento de datos'), R.auts.length?wTbl([4100,1150,2500,2490], R.auts, {head:H_AUT}):vacio('Sin autorizaciones registradas.'),
+    sec('6. Estudios de seguridad y visitas'), R.ests.length?wTbl([1450,1700,750,1100,1250,2290,1700], R.ests, {head:H_EST}):vacio('Sin estudios registrados.'),
+    sec('7. Advertencia'), wP(wR(d.advertencia,{sz:17}),{jc:'both'}),
+    wP('',{before:600,after:0}), wP(wR('______________________________________',{sz:18}),{after:0}),
+    wP(wR(meta.emisor.nombre,{sz:18}),{after:0}), wP(wR(meta.emisor.cargo,{sz:18}),{after:0}), wP(wR('Avo Pak S.A.S.',{sz:18}),{after:0})
+  ].join('');
+  const NS='xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+  const documento=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document ${NS} xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>${cuerpo}<w:sectPr><w:footerReference w:type="default" r:id="rId3"/><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1000" w:right="1000" w:bottom="1100" w:left="1000" w:header="500" w:footer="450" w:gutter="0"/></w:sectPr></w:body></w:document>`;
+  const pie=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:ftr ${NS}><w:p><w:pPr><w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="999999"/></w:pBdr><w:spacing w:before="0" w:after="0"/></w:pPr>${wR(`Documento ${meta.documento}. Huella SHA-256 del contenido: ${hash}. Página `,{sz:13,color:'444444'})}<w:fldSimple w:instr=" PAGE "><w:r><w:rPr><w:sz w:val="13"/></w:rPr><w:t>1</w:t></w:r></w:fldSimple>${wR(' de ',{sz:13,color:'444444'})}<w:fldSimple w:instr=" NUMPAGES "><w:r><w:rPr><w:sz w:val="13"/></w:rPr><w:t>1</w:t></w:r></w:fldSimple></w:p><w:p><w:pPr><w:spacing w:before="0" w:after="0"/></w:pPr>${wR('Generado por la aplicación de estudios de seguridad de personal. Verifique la autenticidad del archivo en Bitácora, «Verificar un documento».',{sz:13,color:'444444'})}</w:p></w:ftr>`;
+  const estilos=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial" w:cs="Arial"/><w:sz w:val="18"/><w:szCs w:val="18"/><w:lang w:val="es-CO"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="80" w:line="252" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style><w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/><w:uiPriority w:val="99"/><w:semiHidden/><w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/></w:tblCellMar></w:tblPr></w:style></w:styles>`;
+  const tipos=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`;
+  const relsRaiz=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`;
+  const relsDoc=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logotipo.${ext}"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
+  const core=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>${XE('Perfil de seguridad '+d.persona.codigo)}</dc:title><dc:subject>${XE('Dirección de Seguridad Integral, Avo Pak S.A.S.')}</dc:subject><dc:creator>${XE(meta.emisor.nombre)}</dc:creator><cp:keywords>${XE('SHA-256 '+hash)}</cp:keywords><dc:identifier>${XE(meta.documento)}</dc:identifier><dcterms:created xsi:type="dcterms:W3CDTF">${meta.emitido.slice(0,19)}Z</dcterms:created></cp:coreProperties>`;
+  return zipStore([
+    {name:'[Content_Types].xml', data:tipos}, {name:'_rels/.rels', data:relsRaiz}, {name:'docProps/core.xml', data:core},
+    {name:'word/document.xml', data:documento}, {name:'word/styles.xml', data:estilos}, {name:'word/footer1.xml', data:pie},
+    {name:'word/_rels/document.xml.rels', data:relsDoc}, {name:`word/media/logotipo.${ext}`, data:logo.u8}
+  ]);
+}
+function descargarPerfil(id){
   const p=P(id); if(!p) return;
-  const I=idx();
-  const auts=(I.aut.get(p.id)||[]).filter(a=>a.estado==='Vigente');
-  const cons=(I.cons.get(p.id)||[]).slice(0,20);
-  const ants=(p.antecedentes||[]).slice(0,20);
-  const ests=(I.est.get(p.id)||[]).slice(0,20);
-  const contenido=`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Perfil - ${esc(nombre(p))}</title><style>body{font-family:Arial,sans-serif;margin:20px;color:#333}h1{border-bottom:2px solid #000;padding-bottom:10px}h2{margin-top:20px;border-left:4px solid #007bff;padding-left:10px}dl{display:grid;grid-template-columns:auto 1fr;gap:10px 20px}dt{font-weight:bold}dd{margin:0}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5;font-weight:bold}.hash{margin-top:30px;padding:15px;background:#f9f9f9;border:1px dashed #999;font-family:monospace;font-size:12px;word-break:break-all}.timestamp{font-size:11px;color:#666}</style></head><body><h1>${esc(nombre(p))}</h1><p class="timestamp">Descargado el ${new Date().toLocaleString('es-CO')}</p><h2>Información personal</h2><dl><dt>Documento</dt><dd>${esc(p.tipoDoc)} ${esc(p.doc)}</dd><dt>Código de verificación</dt><dd>${esc(p.codigoVerificacion||'—')}</dd><dt>Código interno</dt><dd>${esc(p.codigo)}</dd><dt>Vínculo</dt><dd>${esc(p.vinculo)}</dd><dt>Empresa</dt><dd>${esc(p.empresa||'—')}</dd><dt>Cargo</dt><dd>${esc(p.cargo||'—')}${p.critico?' (Crítico)':''}</dd><dt>Área</dt><dd>${esc(p.area||'—')}</dd><dt>Estado</dt><dd>${esc(p.estado)}</dd><dt>Ingreso</dt><dd>${p.fechaIngreso?fmtD(p.fechaIngreso):'—'}</dd><dt>Municipio</dt><dd>${esc(p.municipio||'—')}</dd></dl>${ants.length?`<h2>Antecedentes registrados</h2><table><thead><tr><th>Tipo</th><th>Artículo</th><th>Ley</th><th>Descripción</th></tr></thead><tbody>${ants.map(a=>`<tr><td>${esc(a.tipo)}</td><td>${esc(a.articulo)}</td><td>${esc(a.ley)}</td><td>${esc(a.descripcion)}</td></tr>`).join('')}</tbody></table>`:''}${cons.length?`<h2>Consultas de antecedentes</h2><table><thead><tr><th>Fecha</th><th>Fuente</th><th>Resultado</th><th>Soporte</th></tr></thead><tbody>${cons.map(c=>`<tr><td>${fmtD(c.fecha)}</td><td>${esc(fuenteNom(c.fuenteId))}</td><td>${c.resultado}</td><td>${esc(c.soporte)}</td></tr>`).join('')}</tbody></table>`:''}${ests.length?`<h2>Estudios realizados</h2><table><thead><tr><th>Código</th><th>Tipo</th><th>Fecha</th><th>Concepto</th></tr></thead><tbody>${ests.map(e=>`<tr><td>${esc(e.codigo)}</td><td>${esc(e.tipo)}</td><td>${fmtD(e.fechaRealizacion||e.fechaProgramada)}</td><td>${esc(e.concepto||'')}</td></tr>`).join('')}</tbody></table>`:''}`;
-  const hash=await sha256Hex(contenido);
-  const completo=contenido.replace('</body>',`<div class="hash"><strong>Código de integridad (SHA-256):</strong><br>${hash}</div></body>`);
-  download(`perfil-${p.codigo}-${today()}.html`, completo, 'text/html');
-  toast('Perfil descargado con código SHA-256');
-  log('Descarga', p.codigo, `Perfil descargado con SHA-256`);
+  const nLev=(idx().hall.get(p.id)||[]).filter(h=>!h.anulado&&h.estado==='Levantado').length;
+  openDialog({title:'Descargar perfil', submit:'Descargar', body:`<p class="hint">Perfil de <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)}): identificación, cumplimiento, antecedentes por tipo, consultas con su código de verificación, autorizaciones y estudios. Lleva el logotipo, un código de documento y la huella SHA-256 de su contenido. La descarga queda en la bitácora con la huella del archivo, para verificar después que no fue alterado.</p>
+    <fieldset class="grp"><legend>Formato</legend>
+      <label class="chk"><input type="radio" name="formato" value="PDF" checked><span><strong>PDF</strong><br><span class="hint">Para archivar, enviar o imprimir.</span></span></label>
+      <label class="chk"><input type="radio" name="formato" value="Word"><span><strong>Word (.docx)</strong><br><span class="hint">Si necesita editarlo. Al guardar cambios en Word, el archivo deja de coincidir con la huella de la bitácora.</span></span></label></fieldset>
+    ${nLev?`<label class="chk" style="margin-top:10px"><input type="checkbox" name="conLev"> <span>Incluir ${fmtN(nLev)} antecedente(s) levantado(s) (vista de auditoría)</span></label>`:''}
+    <div class="banner warn" style="margin:12px 0 0">Documento de reserva con datos personales. Compártalo solo con quien tenga competencia para conocerlo.</div>`,
+    onSubmit:async o=>generarPerfil(p, o.formato==='Word'?'Word':'PDF', !!o.conLev)});
+}
+async function generarPerfil(p, formato, conLev){
+  const d=perfilData(p, conLev);
+  const t=new Date(), st=`${t.getFullYear()}${pad(t.getMonth()+1)}${pad(t.getDate())}-${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`;
+  const meta={documento:`PER-${p.codigo.replace(/^P-/,'')}-${st}`, emitido:t.toISOString(), emisor:{...cfg().operador}, formato};
+  const hash=await sha256Hex(canon({meta, contenido:d}));
+  let bytes;
+  try{ const logo=await logoDoc(); bytes = formato==='Word' ? await perfilDOCX(d, meta, hash, logo) : await perfilPDF(d, meta, hash, logo); }
+  catch(e){ console.error(e); return 'No se pudo generar el documento: '+(e.message||e)+'.'; }
+  const hArch=await sha256Bytes(bytes);
+  const ext=formato==='Word'?'docx':'pdf', mime=formato==='Word'?'application/vnd.openxmlformats-officedocument.wordprocessingml.document':'application/pdf';
+  download(`perfil-${p.codigo}-${st}.${ext}`, new Blob([bytes],{type:mime}));
+  await log('Perfil descargado', p.codigo, `Documento ${meta.documento} en ${formato}${conLev?', con antecedentes levantados':''}; huella del contenido ${hash}; huella del archivo ${hArch}`);
+  toast(`Perfil descargado en ${formato}`);
+  return null;
+}
+function verificarDocumento(){
+  openDialog({title:'Verificar un documento', submit:null, body:`<p class="hint">Seleccione un perfil en PDF o Word descargado de esta aplicación. Su huella SHA-256 se calcula en este equipo (el archivo no se envía a ninguna parte) y se busca en la bitácora.</p>
+    <label class="f"><span>Archivo</span><input type="file" name="archivo" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label><div id="verres"></div>`,
+    onOpen:f=>{ f.archivo.addEventListener('change', async()=>{ const file=f.archivo.files[0]; const box=$('#verres'); if(!file){ box.innerHTML=''; return; }
+      const h=await sha256Bytes(new Uint8Array(await file.arrayBuffer()));
+      const e=S.db.bitacora.find(x=>x.accion==='Perfil descargado' && String(x.detalle).includes('huella del archivo '+h));
+      box.innerHTML = e ? `<div class="banner ok" style="margin-top:12px"><strong>Documento auténtico e íntegro.</strong> Coincide con el ${esc(String(e.detalle).split(';')[0].toLowerCase())}, descargado el ${fmtDT(e.ts)} por ${esc(e.usuario)} (persona ${esc(e.ref)}; entrada ${e.n} de la bitácora).</div>`
+        : `<div class="banner bad" style="margin-top:12px"><strong>No coincide.</strong> La huella SHA-256 del archivo (${esc(h.slice(0,16))}…) no corresponde a ningún perfil descargado de esta aplicación: el archivo se modificó después de descargarlo o no proviene de ella.</div>`; }); }});
+}
+
+/* =====================================================================
+   Instalación en celular, tableta o computador (aplicación web progresiva)
+   ===================================================================== */
+let promptInstalar=null;
+const esIOS = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+const instalada = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone===true;
+function puedeInstalar(){ return !instalada() && (!!promptInstalar || esIOS()); }
+function actualizarInstalar(){ $$('[data-act=instalarApp]').forEach(b=>{ b.hidden=!puedeInstalar(); }); }
+window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); promptInstalar=e; actualizarInstalar(); });
+window.addEventListener('appinstalled', ()=>{ promptInstalar=null; actualizarInstalar(); toast('Aplicación instalada'); });
+const AYUDA_INSTALAR = `<p><strong>Celular o tableta Android</strong> (Chrome): abra la aplicación, toque el menú <strong>⋮</strong> (arriba a la derecha) y elija <strong>Instalar aplicación</strong> o <strong>Agregar a la pantalla principal</strong>.</p>
+  <p><strong>iPhone o iPad</strong> (Safari): abra la aplicación, toque el botón <strong>Compartir</strong> (el cuadrado con una flecha hacia arriba, abajo en el iPhone y arriba en el iPad), deslice hacia abajo y toque <strong>Agregar a pantalla de inicio</strong>, luego <strong>Agregar</strong>.</p>
+  <p><strong>Computador</strong> (Chrome o Edge): en la barra de direcciones, a la derecha, haga clic en el ícono de instalar (una pantalla con una flecha) y luego en <strong>Instalar</strong>.</p>
+  <p class="hint">Queda un ícono con el logotipo de la Dirección de Seguridad que abre la aplicación en su propia ventana. Los datos siguen cifrados y sincronizados con la nube; en cada equipo se entra con la contraseña de acceso y la clave de cifrado.</p>`;
+async function instalarApp(){
+  if(promptInstalar){ const e=promptInstalar; promptInstalar=null; e.prompt(); try{ await e.userChoice; }catch(x){} actualizarInstalar(); return; }
+  openDialog({title:'Instalar la aplicación en este equipo', submit:null, body:AYUDA_INSTALAR});
 }
 
 /* =====================================================================
    Exportaciones
    ===================================================================== */
 const EXPORTS = {
-  exportPersonas(){ const rows=filtPersonas().map(p=>{ const c=cumpl(p), lc=lastConsultaAny(p.id), lv=lastVisita(p.id); return [p.codigo,p.tipoDoc,p.doc,p.nombres,p.apellidos,p.vinculo,p.empresa,p.cargo,p.area,p.critico?'Sí':'No',p.estado,fmtD(p.fechaIngreso),fmtD(p.fechaRetiro),p.municipio,lc?fmtD(lc.fecha):'',lv?fmtD(lv.fechaRealizacion):'',c.aut.t,c.ant.t,c.vis.t,G_LBL[c.g]]; });
-    exportCSV(`personas-${stamp()}.csv`, ['Código','Tipo doc.','Documento','Nombres','Apellidos','Vínculo','Empresa o finca','Cargo','Área','Crítico','Estado','Ingreso','Retiro','Municipio','Última consulta','Última visita','Autorización','Antecedentes','Visita','Cumplimiento'], rows); log('Exportación', '', `Personas: ${rows.length} filas`); },
-  exportConsultas(){ const rows=filtConsultas().map(c=>{ const p=P(c.personaId); return [fmtD(c.fecha),p?.codigo,nombre(p),p?.doc,fuenteNom(c.fuenteId),c.resultado,c.soporte,c.obs,c.consultadoPor,c.lote||'',c.anulada?'Sí':'No']; });
-    exportCSV(`consultas-${stamp()}.csv`, ['Fecha','Código','Persona','Documento','Fuente','Resultado','Soporte','Observación','Registró','Lote','Anulada'], rows); log('Exportación', '', `Consultas: ${rows.length} filas`); },
-  exportHallazgos(){ const rows=filtHallazgos().map(h=>{ const p=P(h.personaId); return [fmtD(h.fechaDeteccion),p?.codigo,nombre(p),fuenteNom(h.fuenteId),h.descripcion,h.valoracion,h.estado,fmtD(h.fechaLevantamiento)]; });
-    exportCSV(`registros-hallados-${stamp()}.csv`, ['Detectado','Código','Persona','Fuente','Descripción','Valoración','Estado','Levantado'], rows); log('Exportación', '', `Registros hallados: ${rows.length} filas`); },
+  exportPersonas(){ const rows=filtPersonas().map(p=>{ const c=cumpl(p), lc=lastConsultaAny(p.id), lv=lastVisita(p.id); return [p.codigo,p.empresa,grupoTxt(p),p.tipoDoc,p.doc,p.nombres,p.apellidos,esAsp(p)?'':vincTxt(p),p.contratista||'',p.cargo,p.area,p.critico?'Sí':'No',p.estado,fmtD(p.fechaIngreso),fmtD(p.fechaRetiro),p.municipio,lc?fmtD(lc.fecha):'',lv?fmtD(lv.fechaRealizacion):'',c.aut.t,c.ant.t,c.vis.t,G_LBL[c.g]]; });
+    exportCSV(`personas-${stamp()}.csv`, ['Código','Razón social','Grupo','Tipo doc.','Documento','Nombres','Apellidos','Vínculo','Empresa contratista','Cargo','Área','Crítico','Estado','Ingreso','Retiro o cierre','Municipio','Última consulta','Última visita','Autorización','Antecedentes','Visita','Cumplimiento'], rows); log('Exportación', '', `Personas: ${rows.length} filas`); },
+  exportConsultas(){ const rows=filtConsultas().map(c=>{ const p=P(c.personaId); return [fmtD(c.fecha),p?.codigo,nombre(p),p?.doc,p?.empresa,fuenteNom(c.fuenteId),c.resultado,c.codigoVerificacion||'',c.soporte,c.obs,c.consultadoPor,c.lote||'',c.anulada?'Sí':'No']; });
+    exportCSV(`consultas-${stamp()}.csv`, ['Fecha','Código','Persona','Documento','Razón social','Fuente','Resultado','Código de verificación','Soporte','Observación','Registró','Lote','Anulada'], rows); log('Exportación', '', `Consultas: ${rows.length} filas`); },
+  exportHallazgos(){ const rows=filtHallazgos().map(h=>{ const p=P(h.personaId); return [h.tipo||'',fmtD(h.fechaDeteccion),fmtD(h.fechaHecho),p?.codigo,nombre(p),p?.empresa,fuenteNom(h.fuenteId),h.autoridad||'',h.radicado||'',h.articulo||'',h.norma||'',h.descripcion,h.valoracion,h.estado,fmtD(h.fechaLevantamiento)]; });
+    exportCSV(`antecedentes-${stamp()}.csv`, ['Tipo','Detectado','Fecha del hecho','Código','Persona','Razón social','Fuente','Autoridad','Proceso o comparendo','Artículo','Norma','Descripción','Valoración','Estado','Levantado'], rows); log('Exportación', '', `Antecedentes: ${rows.length} filas`); },
   exportEstudios(){ const rows=filtEstudios().map(e=>{ const p=P(e.personaId); return [e.codigo,p?.codigo,nombre(p),p?.cargo,p?.critico?'Sí':'No',e.tipo,e.incluyeVisita?'Sí':'No',fmtD(e.fechaProgramada),fmtD(e.fechaRealizacion),e.estado,e.motivoNR,e.concepto,e.ejecutor,e.informe?e.informe.codigo:'',e.informe?e.informe.versiones.length:'']; });
     exportCSV(`estudios-${stamp()}.csv`, ['Código','Código persona','Persona','Cargo','Crítico','Tipo','Visita','Programado','Realizado','Estado','Motivo no realización','Concepto','Ejecutor','Informe','Versiones'], rows); log('Exportación', '', `Estudios: ${rows.length} filas`); },
-  exportVenc(){ const rows=filtVenc().map(v=>[v.p.codigo,nombre(v.p),v.p.vinculo,v.p.empresa,v.p.cargo,v.p.critico?'Sí':'No',v.asunto,v.t,fmtD(v.d),v.det]);
-    exportCSV(`vencimientos-${stamp()}.csv`, ['Código','Persona','Vínculo','Empresa o finca','Cargo','Crítico','Asunto','Situación','Fecha límite','Detalle'], rows); log('Exportación', '', `Vencimientos: ${rows.length} filas`); },
+  exportVenc(){ const rows=filtVenc().map(v=>[v.p.codigo,nombre(v.p),vincTxt(v.p),v.p.empresa,v.p.cargo,v.p.critico?'Sí':'No',v.asunto,v.t,fmtD(v.d),v.det]);
+    exportCSV(`vencimientos-${stamp()}.csv`, ['Código','Persona','Vínculo','Razón social','Cargo','Crítico','Asunto','Situación','Fecha límite','Detalle'], rows); log('Exportación', '', `Vencimientos: ${rows.length} filas`); },
   exportBitacora(){ const rows=S.db.bitacora.map(e=>[e.n,fmtDT(e.ts),e.usuario,e.accion,e.ref,e.detalle,e.hash]);
     exportCSV(`bitacora-${stamp()}.csv`, ['N.º','Fecha y hora','Usuario','Acción','Referencia','Detalle','Huella SHA-256'], rows); log('Exportación', '', `Bitácora: ${rows.length} filas`); },
   exportCifras(){
     const db=S.db, y=S.ui.tab.anio, inY=d=>d&&(y==='todos'||d.startsWith(y));
     const act=db.personas.filter(p=>!p.anon&&p.estado==='Activo'), crit=act.filter(p=>p.critico);
     const cons=db.consultas.filter(c=>!c.anulada&&inY(c.fecha)), ests=db.estudios.filter(e=>e.estado==='Realizado'&&inY(e.fechaRealizacion)); const venc=vencimientos();
-    const rows=[['Fecha de corte',fmtD(today())],['Periodo',y==='todos'?'Todo el histórico':y],['Personas activas',act.length],['Personas en selección',db.personas.filter(p=>!p.anon&&p.estado==='En selección').length],['Cargos críticos activos',crit.length],
+    const rows=[['Fecha de corte',fmtD(today())],['Periodo',y==='todos'?'Todo el histórico':y],['Personal vinculado activo',act.length],['Aspirantes en selección',db.personas.filter(p=>!p.anon&&p.estado==='En selección').length],...cfg().empresas.map(r=>['Vinculados activos: '+r, act.filter(p=>p.empresa===r).length]),['Cargos críticos activos',crit.length],
       ['Críticos con visita al día',crit.filter(p=>['ok','warn'].includes(cumpl(p).vis.s)).length],['Activos con antecedentes al día',act.filter(p=>['ok','warn'].includes(cumpl(p).ant.s)).length],
-      ['Registros vigentes',db.hallazgos.filter(h=>!h.anulado&&h.estado==='Vigente'&&vigente(P(h.personaId))).length],['Registros levantados en el periodo',db.hallazgos.filter(h=>!h.anulado&&h.estado==='Levantado'&&inY(h.fechaLevantamiento)).length],
+      ['Antecedentes vigentes',db.hallazgos.filter(h=>!h.anulado&&h.estado==='Vigente'&&vigente(P(h.personaId))).length],...TIPOS_ANT.map(t=>['Antecedentes vigentes: '+t.toLowerCase(), db.hallazgos.filter(h=>!h.anulado&&h.estado==='Vigente'&&h.tipo===t&&vigente(P(h.personaId))).length]),['Antecedentes levantados en el periodo',db.hallazgos.filter(h=>!h.anulado&&h.estado==='Levantado'&&inY(h.fechaLevantamiento)).length],
       ['Consultas en el periodo',cons.length],['Consultas con registro',cons.filter(c=>c.resultado==='Con registro').length],['Estudios realizados',ests.length],['Estudios con visita domiciliaria',ests.filter(e=>e.incluyeVisita).length],
       ...CONCEPTOS.map(c=>['Concepto: '+c, ests.filter(e=>e.concepto===c).length]),['Estudios no realizados por negativa del titular',db.estudios.filter(e=>e.estado==='No realizado'&&e.motivoNR==='Negativa del titular'&&inY(e.fechaProgramada)).length],
       ['Asuntos vencidos',venc.filter(v=>v.s==='bad').length],['Asuntos por vencer',venc.filter(v=>v.s==='warn').length]];
@@ -1517,6 +1934,20 @@ function migrate(db){
   const d=defaultDB({nombre:'',cargo:''}).config; db.config={...d, ...db.config}; db.config.periodicidad={...d.periodicidad, ...db.config.periodicidad};
   return db;
 }
+// Ajustes de datos de la versión 1.1. Se aplican después de fijar el estado base, para que se envíen a la nube.
+function migrarDatos(){
+  const db=S.db; let n=0; const que=new Set();
+  for(const p of db.personas){
+    if(p.vinculo==='Aspirante'){ if(p.estado==='Activo'){ p.estado='En selección'; n++; que.add('estados de aspirantes'); } else if(p.estado==='Retirado'){ p.estado='No vinculado'; n++; que.add('estados de aspirantes'); } }
+    if(Array.isArray(p.antecedentes)){
+      for(const a of p.antecedentes) if(a && a.id && !db.hallazgos.some(h=>h.id===a.id)) db.hallazgos.push({id:a.id, personaId:p.id, fuenteId:'', fechaDeteccion:String(a.creado||nowISO()).slice(0,10), tipo:a.tipo||'', fechaHecho:'', articulo:a.articulo||'', norma:a.ley||'', autoridad:'', radicado:'', descripcion:a.descripcion||'', valoracion:db.config.valoraciones[1]||db.config.valoraciones[0]||'', estado:'Vigente', soporte:'', creado:a.creado||nowISO()});
+      delete p.antecedentes; n++; que.add('antecedentes trasladados a la sección Antecedentes');
+    }
+  }
+  if(!db.config.fuentes.some(f=>f.id===FUENTE_SIMIT.id || /simit/i.test(f.nombre))){ db.config.fuentes.push({...FUENTE_SIMIT}); n++; que.add('fuente SIMIT agregada'); }
+  if(n){ S.idx=null; S.cumpl.clear(); log('Actualización de la aplicación', '', `Versión ${VER}: ${n} ajuste(s) de datos: ${[...que].join('; ')}`); }
+  return n;
+}
 const codigoHTML = c => `<div class="codrec" aria-label="Código de recuperación">${esc(c)}</div>`;
 function imprimirCodigo(c){
   $('#print-root').innerHTML=`<div class="codprint"><h1>Código de recuperación</h1><p>Aplicación de estudios de seguridad de personal, Dirección de Seguridad Integral, Avo Pak S.A.S. Proyecto: ${esc(Nube.proyecto())}.</p>${codigoHTML(c)}<p>Generado el ${esc(fmtDT(nowISO()))}. Permite recuperar la información si se olvida la clave de cifrado. Guárdelo en sobre cerrado, en un lugar seguro y separado del computador. Quien tenga este código y acceso a la cuenta puede leer la información.</p></div>`;
@@ -1526,14 +1957,19 @@ function imprimirCodigo(c){
 /* =====================================================================
    Pantallas de acceso, desbloqueo e instalación
    ===================================================================== */
-const LOCK_HEAD = `<div class="lock-brand">Avo Pak S.A.S., Dirección de Seguridad Integral</div><h1>Registro de estudios de seguridad de personal</h1>`;
+const LOCK_HEAD = `<div class="lock-logo"><img src="img/logo.png" alt="Avo Pak, Dirección de Seguridad" width="520" height="460"></div><div class="lock-brand">Avo Pak S.A.S., Dirección de Seguridad Integral</div><h1>Registro de estudios de seguridad de personal</h1>`;
+const LOCK_INST = `<button class="linkbtn" type="button" data-act="instalarApp" hidden>Instalar en este equipo</button>`;
 function lockErr(t){ const e=$('#lockerr'); if(e){ e.textContent=t; e.hidden=!t; } }
 function renderLock(mode, msg){
   $('#app').hidden=true; const L=$('#lock'); L.hidden=false;
   const aviso = msg ? `<div class="lock-msg">${esc(msg)}</div>` : '';
   const err = `<div id="lockerr" class="dlg-err" hidden style="margin:12px 0 0"></div>`;
   if(mode==='config'){
-    L.innerHTML=`<div class="lock-card">${LOCK_HEAD}<div class="lock-msg">Falta configurar el proyecto de Firebase.</div><p>Edite el archivo <strong>config.js</strong> en GitHub y pegue el bloque de configuración que le muestra Firebase (Configuración del proyecto, Tus apps, App web). Luego recargue esta página.</p></div>`;
+    const er=window.__errConfig; const hay=!!window.EST_CONFIG;
+    const causa = er ? `El archivo <strong>config.js</strong> tiene un error de escritura${er.linea?' en la línea '+esc(er.linea):''} (${esc(er.msg)}). Suele ocurrir al pegar dos veces el bloque de Firebase o al pegar las líneas «import».`
+      : hay ? 'El archivo <strong>config.js</strong> todavía tiene los textos «PEGUE-AQUI» en lugar de los datos del proyecto.'
+      : 'No se encontró el archivo <strong>config.js</strong> en la carpeta de la aplicación.';
+    L.innerHTML=`<div class="lock-card">${LOCK_HEAD}<div class="lock-msg">Falta configurar el proyecto de Firebase.</div><p>${causa}</p><p>Solución: en GitHub, reemplace <strong>config.js</strong> por el archivo <strong>config.js</strong> ya diligenciado que le entregaron (botón <strong>Add file</strong>, opción <strong>Upload files</strong>). Espere tres minutos y recargue esta página.</p></div>`;
     return;
   }
   if(mode==='cargando'){ L.innerHTML=`<div class="lock-card">${LOCK_HEAD}<p class="lock-wait">${esc(msg||'Un momento…')}</p></div>`; return; }
@@ -1546,7 +1982,8 @@ function renderLock(mode, msg){
       <label class="f"><span>Correo de la cuenta</span><input type="email" name="correo" autocomplete="username" required></label>
       <label class="f"><span>Contraseña de acceso</span><input type="password" name="clave" autocomplete="current-password"></label></div>${err}
       <p style="margin-top:16px"><button class="btn primary" type="submit">Entrar</button></p></form>
-      <div class="lock-links"><button class="linkbtn" type="button" id="olvido">Olvidé la contraseña de acceso</button></div></div>`;
+      <div class="lock-links"><button class="linkbtn" type="button" id="olvido">Olvidé la contraseña de acceso</button>${LOCK_INST}</div></div>`;
+    actualizarInstalar();
     $('#loginform').onsubmit=async ev=>{ ev.preventDefault(); const o=formObj(ev.target); const b=ev.target.querySelector('button[type=submit]');
       if(!o.correo||!o.clave){ lockErr('Escriba el correo y la contraseña de acceso.'); return; }
       b.disabled=true; b.textContent='Verificando…'; lockErr('');
@@ -1561,7 +1998,8 @@ function renderLock(mode, msg){
     L.innerHTML=`<div class="lock-card">${LOCK_HEAD}${aviso}<p class="hint">Cuenta: ${esc(u?u.email:'')}</p>
       <form id="unlockform" novalidate><label class="f"><span>Clave de cifrado</span><input type="password" name="pass" autocomplete="current-password"></label>${err}
       <p style="margin-top:16px"><button class="btn primary" type="submit">Desbloquear</button></p></form>
-      <div class="lock-links"><button class="linkbtn" type="button" id="olvclave">Olvidé la clave de cifrado</button><button class="linkbtn" type="button" id="salir">Cerrar sesión</button></div></div>`;
+      <div class="lock-links"><button class="linkbtn" type="button" id="olvclave">Olvidé la clave de cifrado</button><button class="linkbtn" type="button" id="salir">Cerrar sesión</button>${LOCK_INST}</div></div>`;
+    actualizarInstalar();
     $('#unlockform').onsubmit=async ev=>{ ev.preventDefault(); const o=formObj(ev.target); const btn=ev.target.querySelector('button[type=submit]');
       if(!o.pass){ lockErr('Escriba la clave de cifrado.'); return; }
       btn.disabled=true; btn.textContent='Descifrando…'; lockErr('');
@@ -1635,7 +2073,7 @@ function renderLock(mode, msg){
         btn.textContent='Instalando…'; S.instalando=true;
         const res=await Nube.instalar({correo:o.correo, clave:o.clave, codigo:o.codigo, claveCifrado:o.cif, seq:seqServidor(db0.meta.seq)});
         await guardarLlaveLocal(res.llave);
-        resetY(); S.db=db0; S.idx=null; S.cumpl.clear();
+        resetY(); S.db=db0; S.idx=null; S.cumpl.clear(); migrarDatos();
         await log(env?'Instalación en la nube con datos importados del respaldo':'Instalación en la nube', '', env?`Respaldo guardado el ${fmtDT(env.saved)}; ${db0.personas.length} personas, ${db0.consultas.length} consultas, ${db0.estudios.length} estudios`:`Proyecto ${Nube.proyecto()}`);
         await guardarLocal();
         Y.progreso=(a,b)=>{ const el=$('#instprog'); if(el) el.textContent=`Enviando a la nube: ${fmtN(a)} de ${fmtN(b)} registros cifrados…`; };
@@ -1694,12 +2132,12 @@ async function cargarDatos(){
   resetY(); S.db=null;
   const v=await Store.get('vault'), st=await Store.get('sync');
   if(v && st && v.inst===Nube.inst.id && st.inst===Nube.inst.id){ try{ S.db=migrate(await Nube.descifrar('boveda-local', v)); }catch(e){ S.db=null; } }
-  if(S.db){ baseDesdeLocal(st); enterApp(); sincronizar(); return; }
+  if(S.db){ baseDesdeLocal(st); if(migrarDatos()) mutate(); enterApp(); sincronizar(); return; }
   if(!navigator.onLine){ Nube.cerrar(); throw new Error('Primera apertura en este equipo: se necesita conexión para descargar los datos.'); }
   renderLock('cargando','Descargando y descifrando los datos…');
   S.db=migrate(defaultDB({nombre:'', cargo:''})); Y.inicial=true;
   try{ await traer(); }catch(e){ S.db=null; Y.inicial=false; Nube.cerrar(); renderLock('unlock'); throw new Error(Nube.errorTexto(e)); }
-  Y.inicial=false; await logChain; await guardarLocal();
+  Y.inicial=false; await logChain; if(migrarDatos()) mutate(); await logChain; await guardarLocal();
   enterApp(); sincronizar();
 }
 async function enterApp(){
@@ -1743,13 +2181,13 @@ function updateBackupState(){
 const ACTIONS = {
   lock:()=>lock('Sesión bloqueada.'),
   nuevaPersona, importar:t=>importar(t.dataset.tipo), plantilla:t=>plantilla(t.dataset.tipo),
-  editarPersona:t=>editarPersona(t.dataset.id), suprimirPersona:t=>suprimirPersona(t.dataset.id),
-  nuevaAutorizacion:t=>nuevaAutorizacion(t.dataset.pid), revocarAutorizacion:t=>revocarAutorizacion(t.dataset.id),
-  nuevaConsulta:t=>nuevaConsulta(t.dataset.pid), consultaLote, anularConsulta:t=>anularConsulta(t.dataset.id),
-  nuevoHallazgo:t=>nuevoHallazgo(t.dataset.pid), levantarHallazgo:t=>levantarHallazgo(t.dataset.id),
-  nuevoAntecedente:t=>nuevoAntecedente(t.dataset.pid), eliminarAntecedente:t=>eliminarAntecedente(t.dataset.id),
-  descargarPerfil:t=>descargarPerfil(t.dataset.id),
-  nuevoEstudio:t=>nuevoEstudio(t.dataset.pid), guardarEstudio:()=>guardarEstudio(false), emitirInforme, anularEstudio,
+  editarPersona:t=>editarPersona(t.dataset.id), suprimirPersona:t=>suprimirPersona(t.dataset.id), eliminarPersona:t=>eliminarPersona(t.dataset.id), vincularAspirante:t=>vincularAspirante(t.dataset.id),
+  verRazon:t=>verRazon(t.dataset.razon, t.dataset.grupo), verGrupo:t=>{ S.ui.personas.grupo=t.dataset.grupo; S.ui.personas.sel.clear(); if(t.dataset.grupo==='aspirantes') S.ui.personas.vinculo=''; render(); }, asignarRazon,
+  nuevaAutorizacion:t=>nuevaAutorizacion(t.dataset.pid), editarAutorizacion:t=>editarAutorizacion(t.dataset.id), eliminarAutorizacion:t=>eliminarAutorizacion(t.dataset.id), revocarAutorizacion:t=>revocarAutorizacion(t.dataset.id),
+  nuevaConsulta:t=>nuevaConsulta(t.dataset.pid), consultaLote, editarConsulta:t=>editarConsulta(t.dataset.id), eliminarConsulta:t=>eliminarConsulta(t.dataset.id),
+  nuevoHallazgo:t=>nuevoHallazgo(t.dataset.pid), editarHallazgo:t=>editarHallazgo(t.dataset.id), eliminarHallazgo:t=>eliminarHallazgo(t.dataset.id), levantarHallazgo:t=>levantarHallazgo(t.dataset.id),
+  descargarPerfil:t=>descargarPerfil(t.dataset.id), verificarDocumento:()=>verificarDocumento(), instalarApp:()=>instalarApp(),
+  nuevoEstudio:t=>nuevoEstudio(t.dataset.pid), guardarEstudio:()=>guardarEstudio(false), emitirInforme, anularEstudio, eliminarEstudio,
   imprimirInforme:t=>imprimirInforme(t.dataset.id, t.dataset.v),
   toggleLev:t=>{ S.ui.ficha.levantados=t.checked; render(); },
   selClear:()=>{ S.ui.personas.sel.clear(); S.listFn&&S.listFn(); },
@@ -1758,8 +2196,8 @@ const ACTIONS = {
   copiarResumen:async()=>{ const t=resumenTexto(); try{ await navigator.clipboard.writeText(t); toast('Resumen copiado'); }catch(e){ openDialog({title:'Resumen para informe', submit:null, body:`<textarea rows="8" readonly>${esc(t)}</textarea>`}); } },
   guardarConfig, respaldo, cambiarClave, nuevoCodigo, cambiarAcceso, cerrarSesion:()=>cerrarTodo(false),
   sincronizarYa:async()=>{ await saveNow(); await sincronizar(); toast(Y.estado?('No se pudo sincronizar: '+(Y.estado==='offline'?'sin conexión':Y.error)):'Sincronizado'); if(location.hash.startsWith('#/config')) render(); },
-  quitarLogo:()=>{ cfg().logo=null; log('Configuración modificada','','logotipo retirado'); mutate(); render(); },
-  suprimirVencidos:()=>{ const list=retiradosVencidos(); confirmDialog('Suprimir datos por vencimiento', `Se suprimirán de forma irreversible los datos identificativos de ${list.length} personas retiradas hace más de ${cfg().retencionAnios} años.`, 'Suprimir datos', ()=>{ list.forEach(p=>anonimizar(p,'Vencimiento del plazo de conservación')); mutate(); render(); toast(`${list.length} registros suprimidos`); }); },
+  quitarLogo:()=>{ cfg().logoDoc=null; log('Configuración modificada','','logotipo de la Dirección de Seguridad restablecido'); mutate(); render(); },
+  suprimirVencidos:()=>{ const list=retiradosVencidos(); confirmDialog('Suprimir datos por vencimiento', `Se suprimirán de forma irreversible los datos identificativos de ${list.length} personas retiradas o aspirantes no vinculados hace más de ${cfg().retencionAnios} años.`, 'Suprimir datos', ()=>{ list.forEach(p=>anonimizar(p,'Vencimiento del plazo de conservación')); mutate(); render(); toast(`${list.length} registros suprimidos`); }); },
   borrarTodo:()=>borrarDialog(),
   ...EXPORTS
 };
