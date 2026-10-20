@@ -36,6 +36,7 @@ const CHECKLIST = [
   {k:'referencias', t:'Referencias verificadas con autorización del titular'}
 ];
 const MOTIVOS_SUP = ['Vencimiento del plazo de conservación','Solicitud de supresión del titular','Registro creado por error','Otro'];
+const TIPOS_ANTECEDENTES = ['Penal','Judicial','Administrativo','Infracciones de tránsito'];
 const STATUS_RANK = {bad:3, warn:2, ok:1, na:0};
 const GLYPH = {ok:'✓', warn:'!', bad:'✕', na:'–'};
 
@@ -677,6 +678,7 @@ function personaForm(p={}){
   return `<div class="fgrid">
     <label class="f"><span>Tipo de documento</span><select name="tipoDoc">${opts(TIPOS_DOC,p.tipoDoc||'CC')}</select></label>
     <label class="f"><span>Número de documento</span><input type="text" name="doc" value="${esc(p.doc)}" required inputmode="numeric"></label>
+    <label class="f"><span>Código de verificación del documento</span><input type="text" name="codigoVerificacion" value="${esc(p.codigoVerificacion||'')}" placeholder="Ej.: del documento expedido por Procuraduría, Contraloría"></label>
     <label class="f"><span>Nombres</span><input type="text" name="nombres" value="${esc(p.nombres)}" required></label>
     <label class="f"><span>Apellidos</span><input type="text" name="apellidos" value="${esc(p.apellidos)}"></label>
     <label class="f"><span>Vínculo</span><select name="vinculo">${opts(VINCULOS,p.vinculo||VINCULOS[0])}</select></label>
@@ -712,15 +714,15 @@ function nuevaPersona(){
 }
 function crearPersona(o){
   S.db.meta.seq.persona++;
-  const p={id:uid(), codigo:'P-'+String(S.db.meta.seq.persona).padStart(5,'0'), tipoDoc:o.tipoDoc||'CC', doc:o.doc, nombres:o.nombres, apellidos:o.apellidos||'', vinculo:o.vinculo, empresa:o.empresa||'', cargo:o.cargo||'', area:o.area||'', critico:!!o.critico, estado:o.estado||'Activo', fechaIngreso:o.fechaIngreso||'', fechaRetiro:o.estado==='Retirado'?(o.fechaRetiro||''):'', municipio:o.municipio||'', obs:o.obs||'', creado:nowISO(), actualizado:nowISO(), anon:false};
+  const p={id:uid(), codigo:'P-'+String(S.db.meta.seq.persona).padStart(5,'0'), tipoDoc:o.tipoDoc||'CC', doc:o.doc, codigoVerificacion:o.codigoVerificacion||'', nombres:o.nombres, apellidos:o.apellidos||'', vinculo:o.vinculo, empresa:o.empresa||'', cargo:o.cargo||'', area:o.area||'', critico:!!o.critico, estado:o.estado||'Activo', fechaIngreso:o.fechaIngreso||'', fechaRetiro:o.estado==='Retirado'?(o.fechaRetiro||''):'', municipio:o.municipio||'', obs:o.obs||'', antecedentes:[], creado:nowISO(), actualizado:nowISO(), anon:false};
   S.db.personas.push(p); S.idx=null; return p;
 }
 function editarPersona(id){
   const p=P(id);
   openDialog({title:'Editar datos de la persona', wide:true, body:personaForm(p), onSubmit:o=>{
     const err=validarPersona(o,p); if(err) return err;
-    const campos=['tipoDoc','doc','nombres','apellidos','vinculo','empresa','cargo','area','estado','fechaIngreso','fechaRetiro','municipio','obs'];
-    const cambios=[]; const labels={tipoDoc:'tipo de documento',doc:'documento',nombres:'nombres',apellidos:'apellidos',vinculo:'vínculo',empresa:'empresa',cargo:'cargo',area:'área',estado:'estado',fechaIngreso:'fecha de ingreso',fechaRetiro:'fecha de retiro',municipio:'municipio',obs:'observaciones'};
+    const campos=['tipoDoc','doc','codigoVerificacion','nombres','apellidos','vinculo','empresa','cargo','area','estado','fechaIngreso','fechaRetiro','municipio','obs'];
+    const cambios=[]; const labels={tipoDoc:'tipo de documento',doc:'documento',codigoVerificacion:'código de verificación',nombres:'nombres',apellidos:'apellidos',vinculo:'vínculo',empresa:'empresa',cargo:'cargo',area:'área',estado:'estado',fechaIngreso:'fecha de ingreso',fechaRetiro:'fecha de retiro',municipio:'municipio',obs:'observaciones'};
     if(o.estado!=='Retirado') o.fechaRetiro='';
     for(const k of campos){ if((p[k]||'')!==(o[k]||'')){ cambios.push(labels[k]); p[k]=o[k]||''; } }
     if(!!o.critico!==!!p.critico){ cambios.push('criticidad'); p.critico=!!o.critico; }
@@ -746,6 +748,36 @@ function anonimizar(p, motivo){
   log('Datos suprimidos', p.codigo, motivo);
 }
 
+/* ---------- Antecedentes ---------- */
+function nuevoAntecedente(pid){
+  const p=P(pid);
+  openDialog({title:'Registrar antecedente penal', body:`<div class="fgrid">
+    <label class="f"><span>Tipo de antecedente</span><select name="tipo" required>${opts(TIPOS_ANTECEDENTES,'Penal')}</select></label>
+    <label class="f"><span>Artículo de la ley</span><input type="text" name="articulo" placeholder="Ej.: Art. 23, Art. 80" required></label>
+    <label class="f"><span>Ley específica</span><input type="text" name="ley" placeholder="Ej.: Ley 599 de 2000, Código Penal" required></label>
+    <label class="f wide"><span>Descripción del delito</span><textarea name="descripcion" rows="3" placeholder="Descripción clara y concisa del hecho" required></textarea></label>
+  </div>`, submit:'Registrar antecedente', onSubmit:o=>{
+    if(!o.tipo) return 'Indique el tipo de antecedente.';
+    if(!o.articulo) return 'Indique el artículo de la ley.';
+    if(!o.ley) return 'Indique la ley específica.';
+    if(!o.descripcion) return 'Indique la descripción del delito.';
+    const ant={id:uid(), tipo:o.tipo, articulo:o.articulo, ley:o.ley, descripcion:o.descripcion, creado:nowISO()};
+    p.antecedentes.push(ant);
+    log('Antecedente registrado', p.codigo, `${ant.tipo}: ${ant.articulo} (${ant.ley})`);
+    mutate(); render(); toast('Antecedente registrado');
+  }});
+}
+function eliminarAntecedente(id){
+  const ant=S.db.personas.flatMap(p=>p.antecedentes||[]).find(a=>a.id===id);
+  const p=S.db.personas.find(x=>(x.antecedentes||[]).some(a=>a.id===id));
+  if(!ant || !p) return;
+  openDialog({title:'Eliminar antecedente', danger:true, submit:'Eliminar', body:`<p>¿Está seguro de que desea eliminar este antecedente?</p><p><strong>${esc(ant.tipo)}: ${esc(ant.articulo)}</strong></p><p>${esc(ant.ley)}</p>`, onSubmit:o=>{
+    p.antecedentes=p.antecedentes.filter(a=>a.id!==id);
+    log('Antecedente eliminado', p.codigo, `${ant.tipo}: ${ant.articulo}`);
+    mutate(); render(); toast('Antecedente eliminado');
+  }});
+}
+
 /* ---------- Ficha de persona ---------- */
 function vPersona(id){
   const p=P(id); if(!p) return `<p class="empty">La persona no existe. <a href="#/personas">Volver a personas</a></p>`;
@@ -755,12 +787,14 @@ function vPersona(id){
   const halls=(I.hall.get(p.id)||[]).filter(h=>!h.anulado).sort((a,b)=>b.fechaDeteccion.localeCompare(a.fechaDeteccion));
   const vig=halls.filter(h=>h.estado==='Vigente'), lev=halls.filter(h=>h.estado==='Levantado');
   const ests=(I.est.get(p.id)||[]).slice().sort((a,b)=>(b.fechaRealizacion||b.fechaProgramada||'').localeCompare(a.fechaRealizacion||a.fechaProgramada||''));
+  const ants=(p.antecedentes||[]).slice().sort((a,b)=>b.creado.localeCompare(a.creado));
   const showLev=S.ui.ficha.levantados;
   const seg=(k,lab)=>`<div class="seg ${c[k].s}"><div class="k">${lab}</div><div class="v">${stHTML(c[k].s,c[k].t)}</div><div class="d">${esc(c[k].det||'')}</div></div>`;
   const dis = p.anon ? 'disabled' : '';
   return `<a class="back" href="#/personas">Personas</a>
   <div class="page-head"><div><h1>${esc(nombre(p))}</h1>${p.anon?`<div class="lead">Datos identificativos suprimidos el ${fmtD(p.fechaSupresion)}. Se conservan solo para cifras y trazabilidad.</div>`:''}</div>
     <div class="head-actions">
+      <button class="btn" type="button" data-act="descargarPerfil" data-id="${p.id}">Descargar perfil (PDF)</button>
       <button class="btn" type="button" data-act="editarPersona" data-id="${p.id}" ${dis}>Editar datos</button>
       <button class="btn" type="button" data-act="nuevaAutorizacion" data-pid="${p.id}" ${dis}>Registrar autorización</button>
       <button class="btn" type="button" data-act="nuevaConsulta" data-pid="${p.id}" ${dis}>Registrar consulta</button>
@@ -781,8 +815,8 @@ function vPersona(id){
   <div class="strip" aria-label="Situación de cumplimiento">${seg('aut','Autorización de datos')}${seg('ant','Antecedentes')}${seg('vis','Visita domiciliaria')}</div>
 
   <div class="section"><div class="section-head"><h2>Consultas de antecedentes</h2><button class="btn sm" type="button" data-act="nuevaConsulta" data-pid="${p.id}" ${dis}>Registrar consulta</button></div>
-  ${cons.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Fuente</th><th>Resultado</th><th>Soporte</th><th>Observación</th><th></th></tr></thead><tbody>
-  ${cons.map(x=>`<tr class="${x.anulada?'anulado':''}"><td class="num">${fmtD(x.fecha)}</td><td>${esc(fuenteNom(x.fuenteId))}</td><td>${x.resultado==='Con registro'?'<span class="tag bad">Con registro</span>':esc(x.resultado)}</td><td>${esc(x.soporte)}</td><td>${esc(x.obs)}${x.anulada?`<div class="sub">Anulada: ${esc(x.motivoAnulacion)}</div>`:''}</td><td class="keep">${x.anulada||p.anon?'':`<button class="btn sm ghost" type="button" data-act="anularConsulta" data-id="${x.id}">Anular</button>`}</td></tr>`).join('')}
+  ${cons.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Fuente</th><th>Resultado</th><th>Soporte</th><th>Código de verificación</th><th>Observación</th><th></th></tr></thead><tbody>
+  ${cons.map(x=>`<tr class="${x.anulada?'anulado':''}"><td class="num">${fmtD(x.fecha)}</td><td>${esc(fuenteNom(x.fuenteId))}</td><td>${x.resultado==='Con registro'?'<span class="tag bad">Con registro</span>':esc(x.resultado)}</td><td>${esc(x.soporte)}</td><td>${esc(x.codigoVerificacion||'')}</td><td>${esc(x.obs)}${x.anulada?`<div class="sub">Anulada: ${esc(x.motivoAnulacion)}</div>`:''}</td><td class="keep">${x.anulada||p.anon?'':`<button class="btn sm ghost" type="button" data-act="anularConsulta" data-id="${x.id}">Anular</button>`}</td></tr>`).join('')}
   </tbody></table></div>`:'<p class="hint">Sin consultas registradas.</p>'}</div>
 
   <div class="section"><div class="section-head"><h2>Registros hallados</h2><div class="head-actions">
@@ -792,6 +826,11 @@ function vPersona(id){
   ${[...vig, ...(showLev?lev:[])].map(h=>`<tr><td class="num">${fmtD(h.fechaDeteccion)}</td><td>${esc(fuenteNom(h.fuenteId))}</td><td>${esc(h.descripcion)}</td><td>${esc(h.valoracion)}</td><td>${h.estado==='Vigente'?'<span class="tag bad">Vigente</span>':`<span class="tag hist">Levantado el ${fmtD(h.fechaLevantamiento)}</span>`}</td><td>${h.estado==='Vigente'&&!p.anon?`<button class="btn sm" type="button" data-act="levantarHallazgo" data-id="${h.id}">Registrar levantamiento</button>`:''}</td></tr>`).join('')}
   </tbody></table></div>`:`<p class="hint">Sin registros vigentes.${lev.length&&!showLev?` Hay ${lev.length} levantado(s), visibles solo en la vista de auditoría.`:''}</p>`}
   <p class="hint">Los registros levantados se conservan como trazabilidad, no aparecen en el perfil activo ni alimentan conceptos de riesgo, y se suprimen al vencer el plazo de conservación.</p></div>
+
+  <div class="section"><div class="section-head"><h2>Antecedentes registrados</h2><button class="btn sm" type="button" data-act="nuevoAntecedente" data-pid="${p.id}" ${dis}>Registrar antecedente</button></div>
+  ${ants.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Tipo</th><th>Artículo</th><th>Ley</th><th>Descripción del delito</th><th></th></tr></thead><tbody>
+  ${ants.map(a=>`<tr><td><span class="tag">${esc(a.tipo)}</span></td><td>${esc(a.articulo)}</td><td>${esc(a.ley)}</td><td>${esc(a.descripcion)}</td><td class="keep">${p.anon?'':`<button class="btn sm ghost" type="button" data-act="eliminarAntecedente" data-id="${a.id}">Eliminar</button>`}</td></tr>`).join('')}
+  </tbody></table></div>`:'<p class="hint">Sin antecedentes registrados.</p>'}</div>
 
   <div class="section"><div class="section-head"><h2>Estudios y visitas</h2><button class="btn sm" type="button" data-act="nuevoEstudio" data-pid="${p.id}" ${dis}>Programar estudio</button></div>
   ${ests.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Código</th><th>Tipo</th><th>Visita</th><th>Fecha</th><th>Estado</th><th>Concepto</th><th>Informe</th></tr></thead><tbody>
@@ -846,6 +885,7 @@ function consultaBody(p){
     <label class="f"><span>Resultado</span><select name="resultado" data-toggle-hall>${opts(RESULTADOS,'Sin registro')}</select></label>
     <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentesActivas(),'')}</select></label>
     <label class="f wide"><span>Ubicación del soporte</span><input type="text" name="soporte" placeholder="Ej.: PDF del certificado en la carpeta del expediente"></label>
+    <label class="f wide"><span>Código de verificación del documento</span><input type="text" name="codigoVerificacion" placeholder="Ej.: número de control emitido por Procuraduría, Contraloría, etc."></label>
     <label class="f wide"><span>Observación</span><input type="text" name="obs" data-sens></label>
     <div class="wide hall-extra" hidden><div class="banner warn" style="margin:0 0 10px">Se creará un registro hallado vigente asociado a esta consulta. Descríbalo de forma breve y objetiva.</div><div class="fgrid">
       <label class="f wide"><span>Descripción breve del registro</span><input type="text" name="hDesc" data-sens placeholder="Ej.: anotación vigente en la fuente; ver soporte"></label>
@@ -854,7 +894,7 @@ function consultaBody(p){
 }
 function bindHallToggle(f){ const sel=f.querySelector('[data-toggle-hall]'); const box=f.querySelector('.hall-extra'); if(!sel||!box) return; const t=()=>box.hidden=sel.value!=='Con registro'; sel.addEventListener('change',t); t(); }
 function registrarConsulta(p, o, lote){
-  const c={id:uid(), personaId:p.id, fecha:o.fecha, fuenteId:o.fuente, resultado:o.resultado, soporte:o.soporte||'', obs:o.obs||'', consultadoPor:cfg().operador.nombre, creado:nowISO(), anulada:false, lote:lote||''};
+  const c={id:uid(), personaId:p.id, fecha:o.fecha, fuenteId:o.fuente, resultado:o.resultado, codigoVerificacion:o.codigoVerificacion||'', soporte:o.soporte||'', obs:o.obs||'', consultadoPor:cfg().operador.nombre, creado:nowISO(), anulada:false, lote:lote||''};
   S.db.consultas.push(c);
   if(o.resultado==='Con registro'){
     const h={id:uid(), personaId:p.id, fuenteId:o.fuente, consultaId:c.id, fechaDeteccion:o.fecha, descripcion:o.hDesc||'', valoracion:o.hVal||cfg().valoraciones[1]||'', estado:'Vigente', soporte:o.soporte||'', creado:nowISO()};
@@ -1376,6 +1416,24 @@ function importar(tipo){
 }
 
 /* =====================================================================
+   Descarga de perfil
+   ===================================================================== */
+async function descargarPerfil(id){
+  const p=P(id); if(!p) return;
+  const I=idx();
+  const auts=(I.aut.get(p.id)||[]).filter(a=>a.estado==='Vigente');
+  const cons=(I.cons.get(p.id)||[]).slice(0,20);
+  const ants=(p.antecedentes||[]).slice(0,20);
+  const ests=(I.est.get(p.id)||[]).slice(0,20);
+  const contenido=`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Perfil - ${esc(nombre(p))}</title><style>body{font-family:Arial,sans-serif;margin:20px;color:#333}h1{border-bottom:2px solid #000;padding-bottom:10px}h2{margin-top:20px;border-left:4px solid #007bff;padding-left:10px}dl{display:grid;grid-template-columns:auto 1fr;gap:10px 20px}dt{font-weight:bold}dd{margin:0}table{width:100%;border-collapse:collapse;margin:10px 0}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5;font-weight:bold}.hash{margin-top:30px;padding:15px;background:#f9f9f9;border:1px dashed #999;font-family:monospace;font-size:12px;word-break:break-all}.timestamp{font-size:11px;color:#666}</style></head><body><h1>${esc(nombre(p))}</h1><p class="timestamp">Descargado el ${new Date().toLocaleString('es-CO')}</p><h2>Información personal</h2><dl><dt>Documento</dt><dd>${esc(p.tipoDoc)} ${esc(p.doc)}</dd><dt>Código de verificación</dt><dd>${esc(p.codigoVerificacion||'—')}</dd><dt>Código interno</dt><dd>${esc(p.codigo)}</dd><dt>Vínculo</dt><dd>${esc(p.vinculo)}</dd><dt>Empresa</dt><dd>${esc(p.empresa||'—')}</dd><dt>Cargo</dt><dd>${esc(p.cargo||'—')}${p.critico?' (Crítico)':''}</dd><dt>Área</dt><dd>${esc(p.area||'—')}</dd><dt>Estado</dt><dd>${esc(p.estado)}</dd><dt>Ingreso</dt><dd>${p.fechaIngreso?fmtD(p.fechaIngreso):'—'}</dd><dt>Municipio</dt><dd>${esc(p.municipio||'—')}</dd></dl>${ants.length?`<h2>Antecedentes registrados</h2><table><thead><tr><th>Tipo</th><th>Artículo</th><th>Ley</th><th>Descripción</th></tr></thead><tbody>${ants.map(a=>`<tr><td>${esc(a.tipo)}</td><td>${esc(a.articulo)}</td><td>${esc(a.ley)}</td><td>${esc(a.descripcion)}</td></tr>`).join('')}</tbody></table>`:''}${cons.length?`<h2>Consultas de antecedentes</h2><table><thead><tr><th>Fecha</th><th>Fuente</th><th>Resultado</th><th>Soporte</th></tr></thead><tbody>${cons.map(c=>`<tr><td>${fmtD(c.fecha)}</td><td>${esc(fuenteNom(c.fuenteId))}</td><td>${c.resultado}</td><td>${esc(c.soporte)}</td></tr>`).join('')}</tbody></table>`:''}${ests.length?`<h2>Estudios realizados</h2><table><thead><tr><th>Código</th><th>Tipo</th><th>Fecha</th><th>Concepto</th></tr></thead><tbody>${ests.map(e=>`<tr><td>${esc(e.codigo)}</td><td>${esc(e.tipo)}</td><td>${fmtD(e.fechaRealizacion||e.fechaProgramada)}</td><td>${esc(e.concepto||'')}</td></tr>`).join('')}</tbody></table>`:''}`;
+  const hash=await sha256Hex(contenido);
+  const completo=contenido.replace('</body>',`<div class="hash"><strong>Código de integridad (SHA-256):</strong><br>${hash}</div></body>`);
+  download(`perfil-${p.codigo}-${today()}.html`, completo, 'text/html');
+  toast('Perfil descargado con código SHA-256');
+  log('Descarga', p.codigo, `Perfil descargado con SHA-256`);
+}
+
+/* =====================================================================
    Exportaciones
    ===================================================================== */
 const EXPORTS = {
@@ -1689,6 +1747,8 @@ const ACTIONS = {
   nuevaAutorizacion:t=>nuevaAutorizacion(t.dataset.pid), revocarAutorizacion:t=>revocarAutorizacion(t.dataset.id),
   nuevaConsulta:t=>nuevaConsulta(t.dataset.pid), consultaLote, anularConsulta:t=>anularConsulta(t.dataset.id),
   nuevoHallazgo:t=>nuevoHallazgo(t.dataset.pid), levantarHallazgo:t=>levantarHallazgo(t.dataset.id),
+  nuevoAntecedente:t=>nuevoAntecedente(t.dataset.pid), eliminarAntecedente:t=>eliminarAntecedente(t.dataset.id),
+  descargarPerfil:t=>descargarPerfil(t.dataset.id),
   nuevoEstudio:t=>nuevoEstudio(t.dataset.pid), guardarEstudio:()=>guardarEstudio(false), emitirInforme, anularEstudio,
   imprimirInforme:t=>imprimirInforme(t.dataset.id, t.dataset.v),
   toggleLev:t=>{ S.ui.ficha.levantados=t.checked; render(); },

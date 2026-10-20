@@ -1,0 +1,351 @@
+AVO PAK S.A.S. — DIRECCIÓN DE SEGURIDAD INTEGRAL
+Instalación paso a paso — Aplicación de estudios de seguridad en la nube
+==========================================================================
+
+ANTES DE EMPEZAR:
+- Descargue y descomprima el archivo estudios-seguridad-v1.0.0.zip.
+- Tenga a mano el archivo firestore-estudios.rules.txt (es un texto simple).
+- Abra en una pestaña: https://console.firebase.google.com
+- Abra en otra pestaña: https://github.com
+- Asegúrese de tener conexión a internet durante todo el proceso.
+
+
+PARTE 1: CONFIGURAR FIREBASE (proyecto de la nube)
+===================================================
+
+Paso 1.1: Entrar a Firebase
+---
+1. Abra https://console.firebase.google.com en el navegador.
+2. En la esquina superior derecha verá su foto de Google o las iniciales.
+3. Haga clic en ella y asegúrese de que está con la cuenta de Google de la empresa.
+   Si no es la cuenta correcta: cierre sesión y vuelva a entrar con la cuenta de empresa.
+
+
+Paso 1.2: Crear el proyecto
+---
+1. En la página principal de Firebase verá el botón "Crear un proyecto" (grande, azul, al centro).
+2. Haga clic en "Crear un proyecto".
+3. Se abrirá un formulario. En el campo "Nombre del proyecto" escriba exactamente:
+   avopak-estudios
+4. Abajo verá un interruptor etiquetado "Google Analytics" (en gris, desactivado).
+5. Déjelo desactivado (no lo toque).
+6. Más abajo hay un botón azul "Continuar". Haga clic.
+7. Se abrirá otra pantalla preguntando por la ubicación. Desplácese y busque:
+   "Ubicación por defecto de Google Cloud":
+   En el menú desplegable (que dice "Estados Unidos" u otro país), asegúrese de que queda uno de:
+   - nam5 (North America)
+   - us-central1
+   Elija "nam5" (es el recomendado).
+8. Abajo derecha: botón "Crear proyecto".
+9. Espere. Verá una barra de carga. Puede tardar 1-2 minutos. NO cierre la pestaña.
+
+
+Paso 1.3: Activar el inicio por correo
+---
+Después de que se crea el proyecto, la página cargará y verá en el menú izquierdo
+la palabra "Build" (en inglés). Bajo ese menú:
+
+1. En el menú izquierdo, busque "Authentication" (está bajo "Build").
+2. Haga clic en "Authentication".
+3. Verá un botón grande "Get started" (Comenzar). Haga clic.
+4. Se abrirá un listado de opciones de inicio (Gmail, Facebook, Teléfono, etc.).
+5. Busque "Email/Password" (Correo electrónico/Contraseña).
+6. Haga clic en "Email/Password".
+7. Se abrirá un panel. En la parte superior verá dos interruptores:
+   - "Email/password" (el primero) — debe estar AZUL (encendido)
+   - "Email link" (el segundo) — déjelo gris (apagado)
+8. Si el primero ya está azul, solo haga clic en "Save" (Guardar) abajo a la derecha.
+9. Cierre este panel haciendo clic en la X arriba a la derecha.
+
+
+Paso 1.4: Agregar su dominio de GitHub
+---
+1. En el menú izquierdo, bajo "Authentication", haga clic en la pestaña "Settings" (Configuración).
+   (Si no la ve, busque un ícono de engranaje arriba, haga clic y vaya a "Settings".)
+2. En "Authorized domains" (Dominios autorizados), verá una lista.
+3. Abajo de esa lista hay un botón o enlace "Add domain" (Agregar dominio).
+4. Se abrirá un cuadro donde puede escribir. Escriba exactamente:
+   d-mazoavo.github.io
+5. Haga clic en "Add" (Agregar).
+6. Verá que aparece en la lista. Listo.
+
+
+Paso 1.5: Crear la base de datos Firestore
+---
+1. En el menú izquierdo, busque "Firestore Database" (está bajo "Build").
+2. Haga clic en "Firestore Database".
+3. Verá un botón "Create database" (Crear base de datos).
+4. Haga clic en él.
+5. Se abrirá un formulario con dos opciones:
+   - "Production mode" (Modo de producción)
+   - "Testing mode" (Modo de prueba)
+6. Seleccione "Production mode" (es el primero).
+7. Haga clic en "Next" (Siguiente).
+8. Se abrirá otra pantalla: "Select a location for your database" (Seleccione ubicación).
+9. Verá un menú desplegable. Haga clic en él.
+10. Busque y seleccione "nam5 (North America, South Carolina)" o simplemente "nam5".
+    (IMPORTANTE: la ubicación NO se puede cambiar después. Elija una en Estados Unidos.)
+11. Haga clic en "Create" (Crear).
+12. Espere. Puede tardar 1-2 minutos.
+
+
+Paso 1.6: Pegar las reglas de Firestore
+---
+Cuando la base de datos se crea, verá una pestaña "Rules" (Reglas) en el centro.
+
+1. Haga clic en la pestaña "Rules".
+2. Verá un editor de texto con código que dice "match /{document=**} { allow read, write: if false; }".
+3. Seleccione TODO ese código (Ctrl+A o Cmd+A).
+4. Bórrelo (Delete o Backspace).
+5. Abra el archivo firestore-estudios.rules.txt (descomprimido) con el Bloc de notas
+   o un editor de texto simple.
+6. Copie TODO el contenido (Ctrl+A, luego Ctrl+C).
+7. Vuelva a la ventana de Firebase (la pestaña de Firestore Rules).
+8. Haga clic en el editor de texto vacío.
+9. Pegue el código (Ctrl+V).
+10. Arriba a la derecha verá un botón "Publish" (Publicar) en azul.
+11. Haga clic en "Publish".
+12. Verá un mensaje "Rules published successfully" (Reglas publicadas exitosamente).
+
+
+Paso 1.7: Registrar la aplicación web
+---
+1. En el menú izquierdo, arriba de todo, verá un ícono de engranaje. Haga clic en él.
+2. Se abrirá un menú. Seleccione "Project settings" (Configuración del proyecto).
+3. En la página de configuración, abajo verá una sección "Your apps" (Tus aplicaciones).
+4. Si ya hay una aplicación listada, ignore la siguiente parte. Si no hay:
+   Haga clic en el botón con un ícono "</>" (código). Se llama "Add app" (Agregar aplicación).
+5. Seleccione "Web".
+6. Se abrirá un formulario:
+   - Nickname: escriba "estudios"
+   - NO marque "Firebase Hosting"
+7. Haga clic en "Register app" (Registrar aplicación).
+8. Se abrirá un modal con un bloque de código. Verá líneas como:
+
+   const firebaseConfig = {
+     apiKey: "AIzaSyD...",
+     authDomain: "avopak-estudios.firebaseapp.com",
+     projectId: "avopak-estudios",
+     storageBucket: "avopak-estudios.appspot.com",
+     messagingSenderId: "123456...",
+     appId: "1:123456:web:abc123...",
+     measurementId: "G-ABC123..."
+   };
+
+9. Seleccione TODAS esas líneas (desde "const" hasta el cierre "};").
+10. Copie (Ctrl+C).
+11. Guarde el contenido en un archivo temporal o escriba en una nota.
+    (Lo usará en la siguiente parte — GitHub.)
+
+
+PARTE 2: CONFIGURAR GITHUB (almacén del código)
+================================================
+
+Paso 2.1: Crear un repositorio
+---
+1. Abra https://github.com en una pestaña.
+2. Asegúrese de que está logged in (arriba a la derecha verá su foto).
+   Si no está logged in, haga clic y entre con su cuenta de GitHub.
+3. En la esquina superior izquierda verá un botón "+" (plus). Haga clic en él.
+4. Verá un menú desplegable. Seleccione "New repository" (Nuevo repositorio).
+5. Se abrirá un formulario:
+   - "Repository name": escriba exactamente:
+     estudios-seguridad
+   - "Description": puede dejar vacío o escribir algo como "Aplicación de estudios de seguridad".
+   - "Public": asegúrese de que está seleccionado (botón de radio).
+   - "Initialize this repository": NO marque nada.
+6. Haga clic en "Create repository" (botón verde abajo).
+
+
+Paso 2.2: Subir los archivos
+---
+Se abrirá la página del repositorio nuevo (vacío).
+
+1. Verá un botón o enlace que dice "uploading an existing file" (cargar un archivo existente).
+   Puede estar en un mensaje tipo "Quick setup" o en la zona central.
+2. Haga clic en ese enlace.
+3. Se abrirá un área donde puede arrastrar archivos.
+4. Abra una ventana del Explorador de archivos.
+5. Entre a la carpeta descomprimida de estudios-seguridad-v1.0.0.
+6. Verá estos archivos y carpetas:
+   - index.html
+   - config.js
+   - manifest.webmanifest
+   - sw.js
+   - LEEME.txt
+   - INSTALACION-DETALLADA.txt (si está)
+   - Carpeta: css
+   - Carpeta: js
+   - Carpeta: img
+7. Seleccione TODO (Ctrl+A en la ventana del Explorador).
+8. Arrastre TODO a la zona de carga de GitHub (el área gris que dice "Drag files here").
+9. O haga clic en la zona y seleccione los archivos.
+10. Espere a que se suban todos.
+11. Abajo verá un botón "Commit changes" (Confirmar cambios). Haga clic.
+12. Espere a que la página se recargue.
+
+
+Paso 2.3: Editar config.js
+---
+Cuando termina la carga, la página mostrará el listado de archivos en el repositorio.
+
+1. Haga clic en "config.js" en el listado.
+2. Se abrirá el contenido del archivo.
+3. Arriba a la derecha, busque un ícono de lápiz (✏️). Haga clic en él para editar.
+4. Verá el contenido editable. Busque las líneas que dicen:
+   // PEGUE AQUÍ
+   (algo, tal vez comentarios)
+   // FIN DEL BLOQUE
+5. Borre TODO lo que esté entre "PEGUE AQUÍ" y "FIN DEL BLOQUE".
+6. Pegue allí el bloque firebaseConfig que copió en el Paso 1.7 (el que comienza con "const firebaseConfig = {").
+7. Verifique que queda algo como:
+
+   // PEGUE AQUÍ
+   const firebaseConfig = {
+     apiKey: "AIzaSyD...",
+     ...
+   };
+   // FIN DEL BLOQUE
+
+8. Abajo, en "Commit changes", deje los valores por defecto.
+9. Haga clic en "Commit changes".
+10. Listo. El archivo está actualizado.
+
+
+Paso 2.4: Activar GitHub Pages
+---
+1. En la página del repositorio, arriba verá varias pestañas: Code, Issues, Pull requests, etc.
+2. Busque y haga clic en "Settings" (Configuración).
+3. En el menú izquierdo, busque "Pages" (Páginas).
+4. Haga clic en "Pages".
+5. En la sección "Build and deployment":
+   - "Source": elija "Deploy from a branch" (Publicar desde una rama).
+   - "Branch": verá dos menús desplegables. En el primero, seleccione "main".
+     En el segundo, seleccione "/" (root o raíz).
+6. Haga clic en "Save" (Guardar).
+7. Espere 1-2 minutos. La página se recargará.
+8. Verá un mensaje azul en la parte superior:
+   "Your site is published at https://d-mazoavo.github.io/estudios-seguridad/"
+9. Copie esa URL. Es la dirección de la aplicación.
+
+
+PARTE 3: PRIMER USO DE LA APLICACIÓN
+=====================================
+
+Paso 3.1: Descargar respaldo de la versión anterior
+---
+1. Abra el archivo Registro_Estudios_Seguridad_DSI.html (la versión anterior) en el navegador.
+2. Si le pide una contraseña, escriba la que usa normalmente.
+3. En la pantalla principal, busque "Configuración" (generalmente un ícono de engranaje o un botón).
+4. Haga clic en "Configuración".
+5. Busque el botón "Descargar respaldo cifrado".
+6. Haga clic en él.
+7. Se descargará un archivo con extension .avpk (por ejemplo: respaldo_2026-10-20.avpk).
+8. Guárdelo en una carpeta conocida (Desktop, Descargas, o una carpeta de su elección).
+
+
+Paso 3.2: Abrir la aplicación en la nube
+---
+1. Abra en el navegador la URL que obtuvo en el Paso 2.4:
+   https://d-mazoavo.github.io/estudios-seguridad/
+2. Espere a que la página cargue (puede tardar unos segundos la primera vez).
+3. Verá una pantalla de candado con el título "Estudios de seguridad".
+4. Verá una sección "Primera instalación" con un formulario.
+
+
+Paso 3.3: Completar la instalación
+---
+Rellene el formulario "Primera instalación" en este orden:
+
+1. CORREO:
+   - Campo: "Correo de acceso"
+   - Escriba el correo electrónico de la empresa (el que registró en Gmail).
+
+2. CONTRASEÑA DE ACCESO (para entrar a la cuenta):
+   - Campo: "Contraseña de acceso"
+   - Campo: "Repetir contraseña"
+   - Escriba una contraseña fuerte (mínimo 12 caracteres).
+   - Repítala en el segundo campo.
+   - Esta contraseña es para acceder a la aplicación. La usa en el celular también.
+
+3. CÓDIGO DE INSTALACIÓN:
+   - Campo: "Código de instalación"
+   - Escriba exactamente (sin espacios):
+     DSI-EREQ-XUSQ-92VK
+
+4. NOMBRE Y CARGO:
+   - Campo: "Nombre"
+   - Escriba su nombre completo.
+   - Campo: "Cargo"
+   - Escriba su cargo (por ejemplo: "Director de Seguridad Integral").
+
+5. CLAVE DE CIFRADO (para proteger los datos):
+   - Campo: "Clave de cifrado"
+   - Campo: "Repetir clave de cifrado"
+   - Escriba una contraseña o frase DIFERENTE a la de acceso.
+     Esta es la llave maestra que cifra todos sus datos.
+     IMPORTANTE: si la olvida y no tiene el código de recuperación, perderá los datos.
+   - Repítala en el segundo campo.
+   - Puede ser la misma que usaba en la versión anterior.
+
+6. RESPALDO DE LA VERSIÓN ANTERIOR:
+   - Campo: "Seleccionar archivo"
+   - Haga clic en el botón de seleccionar.
+   - Busque el archivo .avpk que descargó en el Paso 3.1.
+   - Selecciónelo.
+   - Campo: "Contraseña del respaldo"
+   - Escriba la contraseña maestra que usaba en la versión anterior.
+
+7. Cuando todo esté lleno, verá un botón "Instalar" (azul).
+   Haga clic en "Instalar".
+   Espere. Puede tardar unos segundos mientras se importan los datos.
+
+
+Paso 3.4: Guardar el código de recuperación
+---
+1. Después de la instalación, verá una pantalla con el "Código de recuperación".
+2. Es una serie de letras y números (ejemplo: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX).
+3. Este código sirve si olvida la clave de cifrado.
+4. Imprímalo (botón "Imprimir") O escriba en papel.
+5. Guárdelo en un sobre cerrado, en un lugar seguro, separado del computador.
+   (Por ejemplo: en una caja de seguridad, con el abogado, etc.)
+6. NO lo deje en el disco, en la pantalla, ni en un archivo.
+7. Haga clic en "Entrar".
+
+
+Paso 3.5: Usar en el computador
+---
+1. Verá la pantalla principal con el tablero de control.
+2. Puede comenzar a registrar personas, estudios, hallazgos e informes.
+
+
+Paso 3.6: Usar en el celular (celular, tableta, o computador 2)
+---
+1. Abra el navegador del celular o tableta.
+2. Escriba en la barra de direcciones:
+   https://d-mazoavo.github.io/estudios-seguridad/
+3. Verá la pantalla de login (de acceso).
+4. Escriba el correo y la contraseña de acceso que registró.
+5. Haga clic en "Entrar".
+6. Se abrirá una pantalla pidiendo la "Clave de cifrado".
+7. Escriba la clave de cifrado que registró.
+8. Haga clic en "Desbloquear".
+9. Verá los mismos datos que en el computador.
+10. OPCIONAL (celular): en Chrome del celular, arriba a la derecha verá un menú (⋮).
+    Haga clic. Busque "Agregar a la pantalla de inicio" o "Install app".
+    Esto crea un acceso directo como si fuera una aplicación.
+
+
+PARTE 4: DESPUÉS DE INSTALAR
+============================
+
+1. Deje de usar el archivo HTML anterior (Registro_Estudios_Seguridad_DSI.html).
+2. Use SOLO la versión en la nube desde ahora.
+3. Registre todos los datos nuevos allí.
+4. Una vez al mes, descargue un respaldo:
+   - Configuración → Descargar respaldo cifrado.
+   - Guárdelo en OneDrive corporativo con la fecha del mes.
+
+LISTO. La aplicación está funcionando.
+
+En caso de dudas específicas de pasos, contácteme con el paso exacto y la pantalla que ve.
