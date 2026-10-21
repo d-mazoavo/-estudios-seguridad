@@ -6,7 +6,7 @@
    ===================================================================== */
 const APP_ID = 'AVOPAK-DSI-ESTUDIOS';
 const SCHEMA = 1;
-const VER = '1.2.0';
+const VER = '1.2.1';
 const KDF_ITER = 600000;
 const VINCULOS = ['Trabajador directo','Personal de finca','Contratista','Aspirante'];
 const TIPOS_VINC = VINCULOS.slice(0,3);
@@ -1708,7 +1708,7 @@ function perfilData(p, conLev){
     cumplimiento:[['Autorización de datos', c.aut.t, c.aut.det||''], ['Consultas de antecedentes', c.ant.t, c.ant.det||''], ['Visita domiciliaria', c.vis.t, c.vis.det||'']],
     antecedentes:halls.map(h=>({tipo:h.tipo||'Sin tipo', detectado:h.fechaDeteccion, fechaHecho:h.fechaHecho||'', fuente:fuenteNom(h.fuenteId), autoridad:h.autoridad||'', radicado:h.radicado||'', articuloNorma:artNorma(h), descripcion:h.descripcion||'', valoracion:h.valoracion||'', estado:h.estado, levantado:h.fechaLevantamiento||''})),
     porTipo:TIPOS_ANT.map(t=>[t, halls.filter(h=>h.estado==='Vigente'&&h.tipo===t).length]),
-    consultas:cons.map(x=>({fecha:x.fecha, fuente:fuenteNom(x.fuenteId), resultado:x.resultado, codigoVerificacion:x.codigoVerificacion||'', soporte:x.soporte||''})),
+    consultas:cons.map(x=>({fecha:x.fecha, fuente:fuenteNom(x.fuenteId), resultado:x.resultado, codigoVerificacion:x.codigoVerificacion||'', observaciones:x.obs||''})),
     autorizaciones:auts.map(a=>({tipo:a.tipo, fecha:a.fecha, version:a.version||'', estado:a.estado==='Vigente'?'Vigente':`Revocada el ${fmtD(a.fechaRevocatoria)}`})),
     estudios:ests.map(e=>({codigo:e.codigo, tipo:e.tipo, visita:e.incluyeVisita?'Sí':'No', fecha:e.fechaRealizacion||e.fechaProgramada||'', estado:e.estado, concepto:e.concepto||'', informe:e.informe?`${e.informe.codigo} v${e.informe.versiones.length}`:''})),
     levantadosIncluidos:!!conLev,
@@ -1722,13 +1722,13 @@ function perfilFilas(d){
     ident:[['Nombre',P_.nombre],['Documento',P_.documento],['Código interno',P_.codigo],['Razón social',P_.razonSocial||'Sin razón social'],['Grupo',P_.grupo+(P_.vinculo?` (${P_.vinculo})`:'')],...(P_.contratista?[['Empresa contratista',P_.contratista]]:[]),[P_.grupo==='Aspirante'?'Cargo al que aspira':'Cargo',(P_.cargo||'Sin cargo')+(P_.critico?' (cargo crítico)':'')],['Área',P_.area||'Sin área'],['Estado',P_.estado+(P_.fechaRetiro?` desde ${fmtD(P_.fechaRetiro)}`:'')],...(P_.fechaIngreso?[['Fecha de ingreso',fmtD(P_.fechaIngreso)]]:[]),['Municipio de residencia',P_.municipio||'Sin dato']],
     resumenTipos:'Antecedentes vigentes por tipo: '+d.porTipo.map(([t,n])=>`${t.toLowerCase()}, ${n}`).join('; ')+'.',
     ant:d.antecedentes.map(a=>[a.tipo, fmtD(a.detectado)+(a.fechaHecho?`\nHecho: ${fmtD(a.fechaHecho)}`:''), a.fuente+(a.autoridad?`\n${a.autoridad}`:''), a.articuloNorma+(a.radicado?`\n${a.radicado}`:''), a.descripcion, a.valoracion+'\n'+(a.estado==='Vigente'?'Vigente':`Levantado el ${fmtD(a.levantado)}`)]),
-    cons:d.consultas.map(c=>[fmtD(c.fecha), c.fuente, c.resultado, c.codigoVerificacion, c.soporte]),
+    cons:d.consultas.map(c=>[fmtD(c.fecha), c.fuente, c.resultado, c.codigoVerificacion, c.observaciones]),
     auts:d.autorizaciones.map(a=>[a.tipo, fmtD(a.fecha), a.version, a.estado]),
     ests:d.estudios.map(e=>[e.codigo, e.tipo, e.visita, fmtD(e.fecha), e.estado, e.concepto, e.informe])
   };
 }
 const H_ANT=['Tipo','Detectado','Fuente y autoridad','Artículo y norma','Descripción','Valoración y estado'];
-const H_CONS=['Fecha','Fuente','Resultado','Código de verificación','Soporte'];
+const H_CONS=['Fecha','Fuente','Resultado','Código de verificación','Observaciones'];
 const H_AUT=['Tipo','Fecha','Formato y versión','Estado'];
 const H_EST=['Código','Tipo','Visita','Fecha','Estado','Concepto','Informe'];
 // Los tipos estándar del PDF solo admiten Latin-1: se reemplazan los signos tipográficos que no lo son
@@ -1759,7 +1759,7 @@ async function perfilPDF(d, meta, hash, logo){
   parrafo(R.resumenTipos, {size:8.5});
   if(R.ant.length) tabla(H_ANT, R.ant, [24, 19, 36, 32, 50, CW-161]); else vacio('No registra antecedentes vigentes en las fuentes consultadas.');
   seccion('4. Consultas de antecedentes');
-  if(R.cons.length) tabla(H_CONS, R.cons, [18, 52, 22, 40, CW-132]); else vacio('Sin consultas registradas.');
+  if(R.cons.length) tabla(H_CONS, R.cons, [18, 46, 22, 32, CW-118]); else vacio('Sin consultas registradas.');
   seccion('5. Autorizaciones de tratamiento de datos');
   if(R.auts.length) tabla(H_AUT, R.auts, [74, 20, 44, CW-138]); else vacio('Sin autorizaciones registradas.');
   seccion('6. Estudios de seguridad y visitas');
@@ -1837,7 +1837,7 @@ async function perfilDOCX(d, meta, hash, logo){
     sec('2. Situación de cumplimiento'), wTbl([3000,1900,5340], d.cumplimiento, {head:['Asunto','Situación','Detalle']}),
     sec(d.levantadosIncluidos?'3. Antecedentes (incluye levantados)':'3. Antecedentes vigentes'), wP(wR(R.resumenTipos,{sz:17})),
     R.ant.length?wTbl([1300,1100,2100,1800,2540,1400], R.ant, {head:H_ANT}):vacio('No registra antecedentes vigentes en las fuentes consultadas.'),
-    sec('4. Consultas de antecedentes'), R.cons.length?wTbl([1050,2950,1300,2300,2640], R.cons, {head:H_CONS}):vacio('Sin consultas registradas.'),
+    sec('4. Consultas de antecedentes'), R.cons.length?wTbl([1050,2600,1250,1800,3540], R.cons, {head:H_CONS}):vacio('Sin consultas registradas.'),
     sec('5. Autorizaciones de tratamiento de datos'), R.auts.length?wTbl([4100,1150,2500,2490], R.auts, {head:H_AUT}):vacio('Sin autorizaciones registradas.'),
     sec('6. Estudios de seguridad y visitas'), R.ests.length?wTbl([1450,1700,750,1100,1250,2290,1700], R.ests, {head:H_EST}):vacio('Sin estudios registrados.'),
     sec('7. Advertencia'), wP(wR(d.advertencia,{sz:17}),{jc:'both'}),

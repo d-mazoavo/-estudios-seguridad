@@ -1,8 +1,11 @@
 AVO PAK S.A.S. — DIRECCIÓN DE SEGURIDAD INTEGRAL
-Estudios de seguridad de personal — versión en la nube (Firebase) — v1.2.0
+Estudios de seguridad de personal — versión en la nube (Firebase) — v1.2.1
 ==========================================================================
 
-QUÉ CAMBIA EN LA VERSIÓN 1.2.0
+QUÉ CAMBIA EN LA VERSIÓN 1.2.1
+- Perfil descargado (PDF y Word): en la tabla de consultas, la columna «Soporte» se reemplaza por «Observaciones».
+
+INCLUIDO DESDE LA VERSIÓN 1.2.0
 - Catálogo de fuentes de consulta agrupado: Registraduría y registro civil; seguridad social (ADRES, SISBÉN, RUAF);
   extranjeros (Migración Colombia); propiedades; permisos y licencias (RUNT, Aeronáutica Civil, Supervigilancia);
   antecedentes (Policía, Procuraduría, Contraloría, Código Nacional de Policía, disciplinarios de abogados y jueces,
@@ -35,7 +38,7 @@ CÓMO SUBIR ESTA VERSIÓN A GITHUB (reemplaza los archivos anteriores)
 4. En la carpeta extraída presione Ctrl + A (se seleccionan los 22 archivos) y arrástrelos al recuadro «Drag files here».
 5. Espere a que aparezcan los 22 nombres en la lista. Abajo, botón verde «Commit changes».
 6. Espere 3 minutos. Abra d-mazoavo.github.io/estudios-seguridad/ y presione Ctrl + F5.
-7. Comprobación: la pantalla de acceso debe decir «Versión 1.2.0» y mostrar el logotipo. Si aparece una franja roja,
+7. Comprobación: la pantalla de acceso debe decir «Versión 1.2.1» y mostrar el logotipo. Si aparece una franja roja,
    ahí dice qué archivos faltan: súbalos de nuevo con «Add file» > «Upload files».
 Las carpetas css, js e img que quedaron de la versión anterior ya no se usan; pueden quedarse.
 

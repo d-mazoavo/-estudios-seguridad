@@ -14,7 +14,7 @@
   const C = window.EST_CONFIG || {};
   let auth = null, fs = null, FV = null, TS = null;
 
-  const N = window.Nube = { dek: null, inst: null, KDF_ITER, VER: '1.2.0' };
+  const N = window.Nube = { dek: null, inst: null, KDF_ITER, VER: '1.2.1' };
 
   function b64(u8) { u8 = u8 instanceof Uint8Array ? u8 : new Uint8Array(u8); let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
   function unb64(s) { const b = atob(s); const o = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) o[i] = b.charCodeAt(i); return o; }
