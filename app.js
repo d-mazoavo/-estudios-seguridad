@@ -6,7 +6,7 @@
    ===================================================================== */
 const APP_ID = 'AVOPAK-DSI-ESTUDIOS';
 const SCHEMA = 1;
-const VER = '1.1.1';
+const VER = '1.2.0';
 const KDF_ITER = 600000;
 const VINCULOS = ['Trabajador directo','Personal de finca','Contratista','Aspirante'];
 const TIPOS_VINC = VINCULOS.slice(0,3);
@@ -18,7 +18,46 @@ const TIPOS_ANT = ['Penal','Judicial','Administrativo','Infracciones de tránsit
 const NORMAS_SUG = ['Ley 599 de 2000, Código Penal','Ley 906 de 2004, Código de Procedimiento Penal','Ley 1952 de 2019, Código General Disciplinario','Ley 610 de 2000, responsabilidad fiscal','Ley 1801 de 2016, Código Nacional de Seguridad y Convivencia Ciudadana','Ley 769 de 2002, Código Nacional de Tránsito Terrestre'];
 const OTRAS = '__otras__';
 const TIPOS_DOC = ['CC','CE','PPT','PEP','PA','Otro'];
-const RESULTADOS = ['Sin registro','Con registro','No concluyente'];
+const RESULTADOS = ['Sin registro','Con registro','No concluyente'];          // fuentes de antecedentes
+const RESULTADOS_V = ['Sin novedad','Con novedad','No concluyente'];          // fuentes de verificación (identidad, afiliación, bienes, licencias)
+const RES_TODOS = ['Sin registro','Con registro','Sin novedad','Con novedad','No concluyente'];
+const CAT_FUENTES = ['Registraduría y registro civil','Seguridad social','Extranjeros','Propiedades','Permisos y licencias','Antecedentes','Estados Unidos y listas internacionales','Procesos judiciales','Otras fuentes'];
+// [id, nombre, grupo, ¿su resultado puede ser un antecedente?]
+const CATALOGO = [
+  ['c-reg-cedula','Registraduría Nacional: certificado de estado de cédula de ciudadanía','Registraduría y registro civil',false],
+  ['c-reg-civil','Registraduría Nacional: registro civil de nacimiento y de matrimonio (consultas y certificados de registro civil)','Registraduría y registro civil',false],
+  ['c-reg-vida','Registraduría Nacional: estado de la persona (vivo o fallecido)','Registraduría y registro civil',false],
+  ['c-reg-ven','Registraduría Nacional: registro civil de nacimiento de venezolanos en Colombia','Registraduría y registro civil',false],
+  ['c-adres','ADRES: afiliación reportada por las EPS','Seguridad social',false],
+  ['c-adres-hist','ADRES: histórico, maestro de afiliados compensados','Seguridad social',false],
+  ['c-sisben','Seguridad social: SISBÉN (RUI)','Seguridad social',false],
+  ['c-ruaf','Seguridad social: RUAF, SISPRO','Seguridad social',false],
+  ['c-mig-ce','Migración Colombia: certificado de estado de cédula de extranjería','Extranjeros',false],
+  ['c-ven-ciud','Extranjeros: ciudadano venezolano','Extranjeros',false],
+  ['c-ven-info','Extranjeros: información de ciudadanos venezolanos','Extranjeros',false],
+  ['c-inmuebles','Propiedades: inmuebles','Propiedades',false],
+  ['c-comercio','Propiedades: establecimientos de comercio y sociedades','Propiedades',false],
+  ['c-vehiculos','Propiedades: vehículos','Propiedades',false],
+  ['c-runt-lic','RUNT: licencia de conducción','Permisos y licencias',false],
+  ['c-aerocivil','Aeronáutica Civil: licencia aeronáutica','Permisos y licencias',false],
+  ['c-svsp-pers','Superintendencia de Vigilancia y Seguridad Privada: permiso del personal de empresas de vigilancia','Permisos y licencias',false],
+  ['c-svsp-emp','Superintendencia de Vigilancia y Seguridad Privada: empresas autorizadas','Permisos y licencias',false],
+  ['c-disc-abog','Rama Judicial: antecedentes disciplinarios de abogados y jueces','Antecedentes',true],
+  ['c-inpec','INPEC: personas privadas de la libertad','Antecedentes',true],
+  ['c-militar','Servicio militar: situación militar','Antecedentes',false],
+  ['c-interpol','INTERPOL','Antecedentes',true],
+  ['c-fbi','Estados Unidos: FBI','Estados Unidos y listas internacionales',true],
+  ['c-dea','Estados Unidos: DEA','Estados Unidos y listas internacionales',true],
+  ['c-atf','Estados Unidos: ATF','Estados Unidos y listas internacionales',true],
+  ['c-ice','Estados Unidos: ICE','Estados Unidos y listas internacionales',true],
+  ['c-eeuu-det','Estados Unidos: detenidos y presos','Estados Unidos y listas internacionales',true],
+  ['c-ofac','OFAC: Lista Clinton','Estados Unidos y listas internacionales',true],
+  ['c-sanciones','Listas de sanciones internacionales','Estados Unidos y listas internacionales',true],
+  ['c-spoa','Fiscalía General de la Nación: SPOA','Procesos judiciales',true],
+  ['c-tyba','Rama Judicial: TYBA, procesos judiciales','Procesos judiciales',true]
+];
+// Grupo de las fuentes que ya traía la aplicación
+const CAT_BASE = {'f1':'Antecedentes','f2':'Antecedentes','f3':'Antecedentes','f4':'Antecedentes','f-simit':'Antecedentes','f5':'Procesos judiciales','f6':'Estados Unidos y listas internacionales'};
 const TIPOS_AUT = ['General de tratamiento de datos','Específica de visita domiciliaria'];
 const TIPOS_EST = ['Ingreso','Actualización periódica','Por causa'];
 const ESTADOS_EST = ['Programado','Realizado','No realizado','Anulado'];
@@ -61,8 +100,9 @@ function defaultDB(op){
         {id:'f4', nombre:'Policía Nacional: Registro Nacional de Medidas Correctivas', obligatoria:false, activa:true},
         {id:'f5', nombre:'Rama Judicial: consulta de procesos', obligatoria:false, activa:true},
         {id:'f6', nombre:'Plataforma Inspektor: listas restrictivas', obligatoria:false, activa:true},
-        {...FUENTE_SIMIT}
-      ],
+        {...FUENTE_SIMIT},
+        ...CATALOGO.map(([id,nombre,cat,ant])=>({id, nombre, cat, ant, obligatoria:false, activa:true}))
+      ].map(f=>({cat:CAT_BASE[f.id]||f.cat, ant:true, ...f, ...(CAT_BASE[f.id]?{cat:CAT_BASE[f.id]}:{})})),
       periodicidad:{critico:{antecedentes:12, visita:24}, general:{antecedentes:24, visita:0}},
       diasAlerta:30,
       retencionAnios:3,
@@ -383,6 +423,19 @@ function idx(){
 }
 const P = id => idx().pers.get(id);
 const fuenteNom = id => !id ? 'Sin fuente indicada' : (idx().fuente.get(id)?.nombre || 'Fuente retirada');
+const fuenteAnt = id => { const f=cfg().fuentes.find(x=>x.id===id); return !f || f.ant!==false; };
+const resultadosDe = id => fuenteAnt(id) ? RESULTADOS : RESULTADOS_V;
+const conHallazgo = r => r==='Con registro' || r==='Con novedad';
+function resTag(r){ return r==='Con registro'?'<span class="tag bad">Con registro</span>': r==='Con novedad'?'<span class="tag warn">Con novedad</span>':esc(r); }
+// Lista de fuentes agrupada (optgroup) para los selectores
+function optsFuentes(sel, {incluir='', vacio, todas=false}={}){
+  const fs=cfg().fuentes.filter(f=>todas||f.activa||f.id===incluir);
+  const grupos=[...CAT_FUENTES, ...new Set(fs.map(f=>f.cat).filter(c=>c&&!CAT_FUENTES.includes(c)))];
+  let h = vacio!==undefined ? `<option value="">${esc(vacio)}</option>` : '';
+  for(const g of grupos){ const l=fs.filter(f=>(f.cat||'Otras fuentes')===g); if(!l.length) continue;
+    h+=`<optgroup label="${esc(g)}">${l.map(f=>`<option value="${esc(f.id)}"${f.id===sel?' selected':''}>${esc(f.nombre)}</option>`).join('')}</optgroup>`; }
+  return h;
+}
 const nombre = p => p ? `${p.nombres} ${p.apellidos}`.trim() : '';
 const vigente = p => p && !p.anon && (p.estado==='Activo' || p.estado==='En selección');
 const esAsp = p => !!p && p.vinculo==='Aspirante';
@@ -592,7 +645,7 @@ function vTablero(){
   const hallTipo = db.hallazgos.filter(h=>!h.anulado && h.estado==='Vigente' && vigente(P(h.personaId)));
   const tipoItems = [...TIPOS_ANT, ''].map(t=>({label:t||'Sin tipo asignado', value:hallTipo.filter(h=>(h.tipo||'')===t).length})).filter(i=>i.label!=='Sin tipo asignado'||i.value);
   const concItems = CONCEPTOS.map(c=>({label:c, value:ests.filter(e=>e.concepto===c).length}));
-  const srcRows = cfg().fuentes.map(f=>{ const cs=cons.filter(c=>c.fuenteId===f.id); const r=cs.filter(c=>c.resultado==='Con registro').length; return [f.nombre, cs.length, r]; }).filter(r=>r[1]>0);
+  const srcRows = cfg().fuentes.map(f=>{ const cs=cons.filter(c=>c.fuenteId===f.id); const r=cs.filter(c=>conHallazgo(c.resultado)).length; return [f.nombre, cs.length, r]; }).filter(r=>r[1]>0);
   const prior = venc.filter(v=>v.s==='bad').slice(0,8);
   const facts = db.bitacora.slice(-8).reverse();
   const ub=db.meta.ultimoRespaldo; const dias = ub ? -daysUntil(ub.slice(0,10)) : null;
@@ -624,7 +677,7 @@ function vTablero(){
       <section class="panel"><h2>Conceptos de estudios realizados</h2><p class="hint" style="margin:-6px 0 10px">${fmtN(ests.length)} estudios en ${esc(per)}, ${fmtN(ests.filter(e=>e.incluyeVisita).length)} con visita domiciliaria.</p>${chartBarsH(concItems)}</section>
     </div>
     <div class="grid2">
-      <section class="panel"><h2>Consultas por fuente</h2>${srcRows.length?`<table class="tbl"><thead><tr><th>Fuente</th><th class="n">Consultas</th><th class="n">Con registro</th></tr></thead><tbody>${srcRows.map(r=>`<tr><td>${esc(r[0])}</td><td class="n">${fmtN(r[1])}</td><td class="n">${fmtN(r[2])}</td></tr>`).join('')}</tbody></table>`:'<p class="hint">Sin consultas en el periodo.</p>'}</section>
+      <section class="panel"><h2>Consultas por fuente</h2>${srcRows.length?`<table class="tbl"><thead><tr><th>Fuente</th><th class="n">Consultas</th><th class="n">Con registro o novedad</th></tr></thead><tbody>${srcRows.map(r=>`<tr><td>${esc(r[0])}</td><td class="n">${fmtN(r[1])}</td><td class="n">${fmtN(r[2])}</td></tr>`).join('')}</tbody></table>`:'<p class="hint">Sin consultas en el periodo.</p>'}</section>
       <section class="panel"><h2>Hechos recientes</h2>${facts.length?`<ul class="facts">${facts.map(e=>`<li><span class="when">${fmtDT(e.ts)}</span>${esc(e.accion)}${e.ref?' '+esc(e.ref):''}${e.detalle?'. '+esc(e.detalle):''}</li>`).join('')}</ul><p class="more"><a href="#/bitacora">Ver bitácora completa</a></p>`:'<p class="hint">Sin actividad registrada.</p>'}</section>
     </div>`;
 }
@@ -915,7 +968,7 @@ function vPersona(id){
 
   <div class="section"><div class="section-head"><h2>Consultas de antecedentes</h2><button class="btn sm" type="button" data-act="nuevaConsulta" data-pid="${p.id}" ${dis}>Registrar consulta</button></div>
   ${cons.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Fuente</th><th>Resultado</th><th>Código de verificación</th><th>Soporte</th><th>Observación</th><th></th></tr></thead><tbody>
-  ${cons.map(x=>`<tr class="${x.anulada?'anulado':''}"><td class="num">${fmtD(x.fecha)}</td><td>${esc(fuenteNom(x.fuenteId))}</td><td>${x.resultado==='Con registro'?'<span class="tag bad">Con registro</span>':esc(x.resultado)}</td><td class="mono">${esc(x.codigoVerificacion||'')}</td><td>${esc(x.soporte)}</td><td>${esc(x.obs)}${x.anulada?`<div class="sub">Anulada: ${esc(x.motivoAnulacion)}</div>`:''}</td><td class="keep acts">${acc('editarConsulta',x.id,'Editar')}${acc('eliminarConsulta',x.id,'Eliminar','ghost')}</td></tr>`).join('')}
+  ${cons.map(x=>`<tr class="${x.anulada?'anulado':''}"><td class="num">${fmtD(x.fecha)}</td><td>${esc(fuenteNom(x.fuenteId))}</td><td>${resTag(x.resultado)}</td><td class="mono">${esc(x.codigoVerificacion||'')}</td><td>${esc(x.soporte)}</td><td>${esc(x.obs)}${x.anulada?`<div class="sub">Anulada: ${esc(x.motivoAnulacion)}</div>`:''}</td><td class="keep acts">${acc('editarConsulta',x.id,'Editar')}${acc('eliminarConsulta',x.id,'Eliminar','ghost')}</td></tr>`).join('')}
   </tbody></table></div>`:'<p class="hint">Sin consultas registradas.</p>'}</div>
 
   <div class="section"><div class="section-head"><h2>Antecedentes</h2><div class="head-actions">
@@ -994,7 +1047,7 @@ function revocarAutorizacion(id){
 
 /* ---------- Antecedentes: campos comunes ---------- */
 function fuentesActivas(incluir){ const l=cfg().fuentes.filter(f=>f.activa||f.id===incluir).map(f=>({v:f.id, t:f.nombre})); return l; }
-function tipoSugerido(fid){ const n=norm(fid?fuenteNom(fid):''); if(!n) return ''; if(/simit|transito|comparendo/.test(n)) return 'Infracciones de tránsito'; if(/procuradur|contralor|medidas correctivas|disciplin|fiscal/.test(n)) return 'Administrativo'; if(/rama judicial|procesos/.test(n)) return 'Judicial'; if(/judicial|penal/.test(n)) return 'Penal'; return ''; }
+function tipoSugerido(fid){ const n=norm(fid?fuenteNom(fid):''); if(!n) return ''; if(/simit|transito|comparendo/.test(n)) return 'Infracciones de tránsito'; if(/spoa|inpec|privadas de la libertad|interpol|fbi|dea\b|atf\b|ice\b|detenidos/.test(n)) return 'Penal'; if(/abogados y jueces/.test(n)) return 'Judicial'; if(/procuradur|contralor|medidas correctivas|disciplin|fiscal/.test(n)) return 'Administrativo'; if(/rama judicial|procesos|tyba/.test(n)) return 'Judicial'; if(/judicial|penal/.test(n)) return 'Penal'; return ''; }
 // nombres de campo: en la consulta llevan prefijo (hTipo, hDesc, hVal...), en el formulario propio van sin prefijo
 const ANT_N = {tipo:['tipo','hTipo'], fechaHecho:['fechaHecho','hFechaHecho'], articulo:['articulo','hArticulo'], norma:['norma','hNorma'], autoridad:['autoridad','hAutoridad'], radicado:['radicado','hRadicado'], descripcion:['descripcion','hDesc'], valoracion:['valoracion','hVal']};
 function camposAnt(h={}, enConsulta=false){
@@ -1015,21 +1068,26 @@ function leerAnt(o, enConsulta){ const r={}; for(const k in ANT_N) r[k]=(o[ANT_N
 
 /* ---------- Consultas ---------- */
 function consultaBody(p, c=null, tieneAnt=false){
-  const fuentes=fuentesActivas(c&&c.fuenteId);
   return `${p?`<p class="hint">Persona: <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)})</p>`:''}<div class="fgrid">
     ${p?'':personaPicker()}
     <label class="f"><span>Fecha de la consulta</span><input type="date" name="fecha" value="${esc(c?c.fecha:today())}" max="${today()}"></label>
-    <label class="f"><span>Resultado</span><select name="resultado" data-toggle-hall>${opts(RESULTADOS,c?c.resultado:'Sin registro')}</select></label>
-    <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentes,c?c.fuenteId:'','Seleccione')}</select></label>
+    <label class="f"><span>Resultado</span><select name="resultado" data-toggle-hall>${opts(c?resultadosDe(c.fuenteId):RESULTADOS,c?c.resultado:'Sin registro')}</select></label>
+    <label class="f wide"><span>Fuente</span><select name="fuente">${optsFuentes(c?c.fuenteId:'',{incluir:c&&c.fuenteId, vacio:'Seleccione la fuente consultada'})}</select><span class="hint">Agrupadas: Registraduría, seguridad social, extranjeros, propiedades, permisos y licencias, antecedentes, Estados Unidos y listas internacionales, y procesos judiciales.</span></label>
     <label class="f wide"><span>Ubicación del soporte</span><input type="text" name="soporte" value="${esc(c?c.soporte:'')}" placeholder="Ej.: PDF del certificado en la carpeta del expediente"></label>
     <label class="f wide"><span>Código de verificación del certificado</span><input type="text" name="codigoVerificacion" value="${esc(c?c.codigoVerificacion:'')}" autocomplete="off" spellcheck="false" placeholder="El que trae el certificado expedido por la Procuraduría, la Contraloría, la Policía u otra entidad"><span class="hint">Permite verificar después la autenticidad del certificado en la página de la entidad.</span></label>
-    <label class="f wide"><span>Observación</span><input type="text" name="obs" value="${esc(c?c.obs:'')}" data-sens></label>
+    <label class="f wide"><span>Observación o dato verificado</span><input type="text" name="obs" value="${esc(c?c.obs:'')}" data-sens placeholder="Ej.: cédula vigente; EPS y régimen; novedad encontrada"></label>
     ${tieneAnt?`<div class="wide banner warn" style="margin:0">Esta consulta tiene un antecedente asociado. Si el resultado deja de ser «Con registro», revise ese antecedente en la sección Antecedentes de la ficha: puede editarlo, registrar su levantamiento o eliminarlo.</div>`
     :`<div class="wide hall-extra" hidden><div class="banner warn" style="margin:0 0 10px">Se registrará el antecedente hallado en esta consulta. Clasifíquelo y descríbalo de forma breve y objetiva.</div><div class="fgrid">${camposAnt({}, true)}</div></div>`}
   </div>`;
 }
 function bindHallToggle(f){ const sel=f.querySelector('[data-toggle-hall]'); const box=f.querySelector('.hall-extra'); if(!sel||!box) return; const t=()=>box.hidden=sel.value!=='Con registro'; sel.addEventListener('change',t); t(); }
-function bindConsulta(f){ bindHallToggle(f); bindTipoSugerido(f); }
+// Los resultados cambian según la fuente: antecedentes (con registro) o verificación (con novedad)
+function bindResultados(f){
+  const fu=f.querySelector('[name=fuente]'), re=f.querySelector('[name=resultado]'); if(!fu||!re) return;
+  const eq={'Sin registro':'Sin novedad','Con registro':'Con novedad','Sin novedad':'Sin registro','Con novedad':'Con registro'};
+  fu.addEventListener('change',()=>{ const l=resultadosDe(fu.value); let v=re.value; if(!l.includes(v)) v=eq[v]||l[0]; re.innerHTML=opts(l,v); re.dispatchEvent(new Event('change')); });
+}
+function bindConsulta(f){ bindResultados(f); bindHallToggle(f); bindTipoSugerido(f); }
 function crearAntDesdeConsulta(p, c, o){
   const a=leerAnt(o, true);
   const h={id:uid(), personaId:p.id, fuenteId:c.fuenteId, consultaId:c.id, fechaDeteccion:c.fecha, tipo:a.tipo||tipoSugerido(c.fuenteId), fechaHecho:a.fechaHecho, articulo:a.articulo, norma:a.norma, autoridad:a.autoridad, radicado:a.radicado,
@@ -1044,6 +1102,7 @@ function registrarConsulta(p, o, lote){
 }
 function validarConsulta(o, conAnt){
   if(!o.fuente) return 'Seleccione la fuente.'; if(!validISO(o.fecha)) return 'Indique una fecha válida.'; if(o.fecha>today()) return 'La fecha no puede ser futura.';
+  if(!resultadosDe(o.fuente).includes(o.resultado)) return 'El resultado no corresponde a la fuente seleccionada.';
   if(conAnt && o.resultado==='Con registro'){ if(!o.hTipo) return 'Seleccione el tipo de antecedente (penal, judicial, administrativo o de tránsito).'; if(!o.hDesc) return 'Describa brevemente el antecedente hallado.'; }
   return null;
 }
@@ -1083,14 +1142,15 @@ function eliminarConsulta(id){
 }
 function consultaLote(){
   const ids=[...S.ui.personas.sel].filter(id=>P(id)&&!P(id).anon); if(!ids.length) return;
-  openDialog({title:`Registrar consulta en lote (${ids.length} personas)`, submit:'Registrar consultas', body:`<p class="hint">Se registra la misma fuente, fecha y resultado "Sin registro" para todas las personas seleccionadas. Si alguna tuvo registro, regístrelo después en su ficha como consulta individual con resultado "Con registro". El código de verificación de cada certificado se agrega después, en la ficha de cada persona, con «Editar».</p><div class="fgrid">
-    <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentesActivas(),'','Seleccione')}</select></label>
+  openDialog({title:`Registrar consulta en lote (${ids.length} personas)`, submit:'Registrar consultas', body:`<p class="hint">Se registra la misma fuente, fecha y resultado "Sin registro" (o "Sin novedad", según la fuente) para todas las personas seleccionadas. Si alguna tuvo registro o novedad, regístrelo después en su ficha como consulta individual con resultado "Con registro". El código de verificación de cada certificado se agrega después, en la ficha de cada persona, con «Editar».</p><div class="fgrid">
+    <label class="f wide"><span>Fuente</span><select name="fuente">${optsFuentes('',{vacio:'Seleccione la fuente consultada'})}</select></label>
     <label class="f"><span>Fecha de la consulta</span><input type="date" name="fecha" value="${today()}" max="${today()}"></label>
     <label class="f wide"><span>Ubicación del soporte</span><input type="text" name="soporte" placeholder="Ej.: reporte consolidado de la plataforma"></label></div>`,
     onSubmit:o=>{ if(!o.fuente) return 'Seleccione la fuente.'; if(!validISO(o.fecha)||o.fecha>today()) return 'Indique una fecha válida, no futura.';
       const lote='L-'+Date.now().toString(36).toUpperCase();
-      for(const id of ids) registrarConsulta(P(id), {...o, resultado:'Sin registro', obs:''}, lote);
-      log('Consulta en lote registrada', lote, `${ids.length} personas; ${fuenteNom(o.fuente)}: Sin registro`);
+      const r0=resultadosDe(o.fuente)[0];
+      for(const id of ids) registrarConsulta(P(id), {...o, resultado:r0, obs:''}, lote);
+      log('Consulta en lote registrada', lote, `${ids.length} personas; ${fuenteNom(o.fuente)}: ${r0}`);
       S.ui.personas.sel.clear(); mutate(); render(); toast(`${ids.length} consultas registradas`); }});
 }
 function vConsultas(){
@@ -1099,8 +1159,8 @@ function vConsultas(){
     <div class="head-actions"><button class="btn" type="button" data-act="importar" data-tipo="consultas">Importar histórico</button><button class="btn" type="button" data-act="exportConsultas">Exportar</button><button class="btn primary" type="button" data-act="nuevaConsulta">Registrar consulta</button></div></div>
     <div class="filters">
       <label>Buscar persona<input type="search" data-filter="consultas.q" value="${esc(u.q)}" placeholder="Nombre, documento, código o código de verificación"></label>
-      <label>Fuente<select data-filter="consultas.fuente">${opts(cfg().fuentes.map(f=>({v:f.id,t:f.nombre})),u.fuente,'Todas')}</select></label>
-      <label>Resultado<select data-filter="consultas.resultado">${opts(RESULTADOS,u.resultado,'Todos')}</select></label>
+      <label>Fuente<select data-filter="consultas.fuente">${optsFuentes(u.fuente,{vacio:'Todas', todas:true})}</select></label>
+      <label>Resultado<select data-filter="consultas.resultado">${opts(RES_TODOS,u.resultado,'Todos')}</select></label>
       <label>Desde<input type="date" data-filter="consultas.desde" value="${esc(u.desde)}"></label>
       <label>Hasta<input type="date" data-filter="consultas.hasta" value="${esc(u.hasta)}"></label>
       <label class="chk" style="align-self:center"><input type="checkbox" data-filter="consultas.anuladas" ${u.anuladas?'checked':''}> Incluir anuladas</label>
@@ -1112,16 +1172,16 @@ function filtConsultas(){
 }
 function listConsultas(){
   const u=S.ui.consultas, rows=filtConsultas(), shown=rows.slice(0,u.limit), el=$('#list');
-  const reg=rows.filter(c=>c.resultado==='Con registro'&&!c.anulada).length;
-  el.innerHTML = `<p class="resultcount">${fmtN(rows.length)} consultas; ${fmtN(reg)} con registro</p>${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Persona</th><th>Fuente</th><th>Resultado</th><th>Código de verificación</th><th>Soporte</th><th></th></tr></thead><tbody>
-  ${shown.map(c=>{ const p=P(c.personaId); return `<tr data-href="#/persona/${c.personaId}" class="${c.anulada?'anulado':''}"><td class="num">${fmtD(c.fecha)}</td><td>${esc(nombre(p))}<div class="sub">${esc(p?.codigo)}; ${esc(p?.empresa||'')}</div></td><td>${esc(fuenteNom(c.fuenteId))}</td><td>${c.resultado==='Con registro'?'<span class="tag bad">Con registro</span>':esc(c.resultado)}</td><td class="mono">${esc(c.codigoVerificacion||'')}</td><td>${esc(c.soporte)}${c.lote?`<div class="sub">Lote ${esc(c.lote)}</div>`:''}</td><td class="keep acts">${p&&!p.anon?`<button class="btn sm" type="button" data-act="editarConsulta" data-id="${c.id}">Editar</button><button class="btn sm ghost" type="button" data-act="eliminarConsulta" data-id="${c.id}">Eliminar</button>`:''}</td></tr>`; }).join('')}
+  const reg=rows.filter(c=>c.resultado==='Con registro'&&!c.anulada).length, nov=rows.filter(c=>c.resultado==='Con novedad'&&!c.anulada).length;
+  el.innerHTML = `<p class="resultcount">${fmtN(rows.length)} consultas; ${fmtN(reg)} con registro; ${fmtN(nov)} con novedad</p>${rows.length?`<div class="tblwrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Persona</th><th>Fuente</th><th>Resultado</th><th>Código de verificación</th><th>Soporte</th><th></th></tr></thead><tbody>
+  ${shown.map(c=>{ const p=P(c.personaId); return `<tr data-href="#/persona/${c.personaId}" class="${c.anulada?'anulado':''}"><td class="num">${fmtD(c.fecha)}</td><td>${esc(nombre(p))}<div class="sub">${esc(p?.codigo)}; ${esc(p?.empresa||'')}</div></td><td>${esc(fuenteNom(c.fuenteId))}</td><td>${resTag(c.resultado)}</td><td class="mono">${esc(c.codigoVerificacion||'')}</td><td>${esc(c.soporte)}${c.lote?`<div class="sub">Lote ${esc(c.lote)}</div>`:''}</td><td class="keep acts">${p&&!p.anon?`<button class="btn sm" type="button" data-act="editarConsulta" data-id="${c.id}">Editar</button><button class="btn sm ghost" type="button" data-act="eliminarConsulta" data-id="${c.id}">Eliminar</button>`:''}</td></tr>`; }).join('')}
   </tbody></table></div>${rows.length>shown.length?`<p class="more"><button class="btn" type="button" data-act="limitAll" data-view="consultas">Mostrar las ${fmtN(rows.length)}</button></p>`:''}`:'<p class="empty">No hay consultas con estos filtros.</p>'}`;
 }
 
 /* ---------- Antecedentes (registros hallados) ---------- */
 function antecedenteBody(p, h={}){
   return `<p class="hint">Persona: <strong>${esc(nombre(p))}</strong> (${esc(p.codigo)}).${h.id?'':' Use esta opción para antecedentes conocidos por una fuente distinta de una consulta registrada; los hallados en una consulta se registran desde la consulta.'}</p><div class="fgrid">
-    <label class="f wide"><span>Fuente</span><select name="fuente">${opts(fuentesActivas(h.fuenteId),h.fuenteId||'','Sin fuente del catálogo')}</select></label>
+    <label class="f wide"><span>Fuente</span><select name="fuente">${optsFuentes(h.fuenteId||'',{incluir:h.fuenteId, vacio:'Sin fuente del catálogo'})}</select></label>
     <label class="f"><span>Fecha de detección</span><input type="date" name="fecha" value="${esc(h.fechaDeteccion||today())}" max="${today()}"></label>
     ${camposAnt(h,false)}
     <label class="f wide"><span>Ubicación del soporte</span><input type="text" name="soporte" value="${esc(h.soporte)}"></label></div>`;
@@ -1169,7 +1229,7 @@ function vHallazgos(){
     <label>Tipo<select data-filter="hallazgos.tipo">${opts(TIPOS_ANT,u.tipo,'Todos')}</select></label>
     <label>Estado<select data-filter="hallazgos.estado">${opts([{v:'Vigente',t:'Vigentes'},{v:'Levantado',t:'Levantados (auditoría)'},{v:'',t:'Todos'}],u.estado)}</select></label>
     <label>Valoración<select data-filter="hallazgos.valoracion">${opts(cfg().valoraciones,u.valoracion,'Todas')}</select></label>
-    <label>Fuente<select data-filter="hallazgos.fuente">${opts(cfg().fuentes.map(f=>({v:f.id,t:f.nombre})),u.fuente,'Todas')}</select></label>
+    <label>Fuente<select data-filter="hallazgos.fuente">${optsFuentes(u.fuente,{vacio:'Todas', todas:true})}</select></label>
   </div><div id="list"></div>`;
 }
 function filtHallazgos(){ const u=S.ui.hallazgos, q=norm(u.q); return S.db.hallazgos.filter(h=>{ if(h.anulado) return false; if(u.estado&&h.estado!==u.estado) return false; if(u.tipo&&h.tipo!==u.tipo) return false; if(u.valoracion&&h.valoracion!==u.valoracion) return false; if(u.fuente&&h.fuenteId!==u.fuente) return false; if(q){ const p=P(h.personaId); if(!norm(`${nombre(p)} ${p?.doc} ${p?.codigo} ${h.articulo||''} ${h.norma||''} ${h.descripcion||''} ${h.radicado||''}`).includes(q)) return false; } return true; }).sort((a,b)=>b.fechaDeteccion.localeCompare(a.fechaDeteccion)); }
@@ -1458,9 +1518,12 @@ function vConfig(){
     <label class="f"><span>Antecedentes, demás personal (meses)</span><input type="number" min="1" max="60" name="pgA" value="${c.periodicidad.general.antecedentes}"></label>
     <label class="f"><span>Visita, demás personal (meses; 0 = no aplica)</span><input type="number" min="0" max="60" name="pgV" value="${c.periodicidad.general.visita}"></label>
     <label class="f"><span>Días de aviso previo</span><input type="number" min="0" max="120" name="dias" value="${c.diasAlerta}"></label></div></section>
-  <section class="panel"><h2>Fuentes de consulta</h2><p class="hint" style="margin-top:-6px">Catálogo cerrado. Incluya solo fuentes de consulta lícita; no registre información reservada obtenida por canales no públicos. Las obligatorias determinan si los antecedentes están al día.</p>
-    <div class="cfg-src">${c.fuentes.map(f=>`<input type="text" name="fn_${f.id}" value="${esc(f.nombre)}" aria-label="Nombre de la fuente"><label class="chk"><input type="checkbox" name="fo_${f.id}" ${f.obligatoria?'checked':''}> Obligatoria</label><label class="chk"><input type="checkbox" name="fa_${f.id}" ${f.activa?'checked':''}> Activa</label>`).join('')}</div>
-    <div class="fgrid" style="margin-top:12px"><label class="f wide"><span>Agregar fuente</span><input type="text" name="nuevaFuente" placeholder="Nombre de la entidad y del registro consultado"></label></div></section>
+  <section class="panel"><h2>Fuentes de consulta</h2><p class="hint" style="margin-top:-6px">Catálogo cerrado, agrupado. Desactive las fuentes que no use para que no aparezcan en los formularios. Incluya solo fuentes de consulta lícita; no registre información reservada obtenida por canales no públicos. Las obligatorias determinan si los antecedentes están al día.</p>
+    ${[...CAT_FUENTES, ...new Set(c.fuentes.map(f=>f.cat).filter(x=>x&&!CAT_FUENTES.includes(x)))].map(g=>{ const l=c.fuentes.filter(f=>(f.cat||'Otras fuentes')===g); if(!l.length) return '';
+      return `<h3 class="cfg-cat">${esc(g)}</h3><div class="cfg-src">${l.map(f=>`<input type="text" name="fn_${f.id}" value="${esc(f.nombre)}" aria-label="Nombre de la fuente"><label class="chk"><input type="checkbox" name="fo_${f.id}" ${f.obligatoria?'checked':''}> Obligatoria</label><label class="chk"><input type="checkbox" name="fa_${f.id}" ${f.activa?'checked':''}> Activa</label>`).join('')}</div>`; }).join('')}
+    <div class="fgrid" style="margin-top:12px"><label class="f wide"><span>Agregar fuente</span><input type="text" name="nuevaFuente" placeholder="Nombre de la entidad y del registro consultado"></label>
+      <label class="f"><span>Grupo</span><select name="nuevaCat">${opts(CAT_FUENTES,'Antecedentes')}</select></label>
+      <div><label class="chk" style="margin-top:22px"><input type="checkbox" name="nuevaAnt" checked><span>Su resultado puede ser un antecedente<br><span class="hint">Desmárquelo para fuentes de verificación: identidad, afiliación, bienes o licencias.</span></span></label></div></div></section>
   <section class="panel"><h2>Razones sociales y valoraciones</h2><div class="fgrid">
     <label class="f"><span>Razones sociales (una por línea)</span><textarea name="empresas" rows="5">${esc(c.empresas.join('\n'))}</textarea><span class="hint">Cada persona pertenece a una de ellas. Si cambia un nombre, las personas registradas con el nombre anterior aparecen en «Otras»: selecciónelas en Personas y use «Cambiar razón social».</span></label>
     <label class="f"><span>Escala de valoración de antecedentes (una por línea)</span><textarea name="valoraciones" rows="5">${esc(c.valoraciones.join('\n'))}</textarea><span class="hint">Alinéela con el instructivo de valoración de antecedentes vigente.</span></label></div></section>
@@ -1504,7 +1567,7 @@ async function guardarConfig(){
     if(ret!==c.retencionAnios){ cambios.push('plazo de conservación'); c.retencionAnios=ret; }
     if(o.opNombre!==c.operador.nombre||o.opCargo!==c.operador.cargo){ cambios.push('operador'); c.operador={nombre:o.opNombre, cargo:o.opCargo}; }
     for(const fu of c.fuentes){ const nn=o['fn_'+fu.id], ob=!!o['fo_'+fu.id], ac=!!o['fa_'+fu.id]; if(nn&&nn!==fu.nombre){fu.nombre=nn; cambios.push('nombre de fuente');} if(ob!==fu.obligatoria||ac!==fu.activa){ fu.obligatoria=ob; fu.activa=ac; cambios.push('fuentes'); } }
-    if(o.nuevaFuente){ c.fuentes.push({id:'f'+uid().slice(0,8), nombre:o.nuevaFuente, obligatoria:false, activa:true}); cambios.push('fuente agregada'); }
+    if(o.nuevaFuente){ c.fuentes.push({id:'f'+uid().slice(0,8), nombre:o.nuevaFuente, cat:o.nuevaCat||'Otras fuentes', ant:!!o.nuevaAnt, obligatoria:false, activa:true}); cambios.push('fuente agregada'); }
     if(canon(emp)!==canon(c.empresas)){ c.empresas=emp; cambios.push('empresas'); }
     if(canon(val)!==canon(c.valoraciones)){ c.valoraciones=val; cambios.push('valoraciones'); }
     if(o.prefijo&&o.prefijo!==c.prefijoInforme){ c.prefijoInforme=o.prefijo; cambios.push('prefijo de informe'); }
@@ -1573,7 +1636,7 @@ function analizarImport(tipo, rows){
     } else {
       const docv=get(r,'numero_documento').replace(/[.\s]/g,''); const p=S.db.personas.find(x=>!x.anon&&norm(x.doc)===norm(docv));
       const fecha=parseDateLoose(get(r,'fecha')); const fn=norm(get(r,'fuente')); const f=cfg().fuentes.find(x=>norm(x.nombre)===fn)||cfg().fuentes.find(x=>fn&&norm(x.nombre).startsWith(fn));
-      const rn=norm(get(r,'resultado')); const res = rn.startsWith('sin')?'Sin registro': rn.startsWith('con')?'Con registro': rn.startsWith('no')?'No concluyente':null;
+      const rn=norm(get(r,'resultado')); const ant=f?fuenteAnt(f.id):true; const res = rn.startsWith('sin')?(ant?'Sin registro':'Sin novedad'): rn.startsWith('con')?(ant?'Con registro':'Con novedad'): rn.startsWith('no')?'No concluyente':null;
       const e=[]; if(!p) e.push('persona no registrada'); if(!fecha||fecha>today()) e.push('fecha inválida o futura'); if(!f) e.push('fuente no reconocida'); if(!res) e.push('resultado no reconocido');
       if(e.length) errs.push(`Fila ${line}: ${e.join('; ')}`); else ok.push({p, o:{fecha, fuente:f.id, resultado:res, codigoVerificacion:get(r,'codigo_verificacion'), soporte:get(r,'soporte'), obs:get(r,'observacion'), hTipo:mapTipoAnt(get(r,'tipo_antecedente')), hArticulo:get(r,'articulo'), hNorma:get(r,'norma'), hDesc:get(r,'observacion')||'Antecedente hallado en importación histórica; ver soporte', hVal:cfg().valoraciones[1]||cfg().valoraciones[0]}});
     }
@@ -1588,7 +1651,7 @@ function importar(tipo){
     <p><button class="btn sm" type="button" data-act="plantilla" data-tipo="${tipo}">Descargar plantilla</button></p>
     ${tipo==='personas'
       ?`<p class="hint">Razón social: ${cfg().empresas.map(esc).join(', ')}. Grupo: Vinculado o Aspirante. Vínculo de los vinculados: ${TIPOS_VINC.join(', ')}. Estado: Activo o Retirado para vinculados; En selección o No vinculado para aspirantes. Cargo crítico: Sí o No.</p><label class="chk"><input type="checkbox" name="actualizar"> Actualizar los datos de personas ya registradas con el mismo documento</label>`
-      :`<p class="hint">Las personas deben estar registradas antes. Fuentes admitidas: ${cfg().fuentes.map(f=>esc(f.nombre)).join('; ')}. Resultado: Sin registro, Con registro o No concluyente. Cada fila "Con registro" crea un antecedente vigente; tipo_antecedente admite Penal, Judicial, Administrativo o Tránsito.</p>`}
+      :`<p class="hint">Las personas deben estar registradas antes. Fuentes admitidas: ${cfg().fuentes.map(f=>esc(f.nombre)).join('; ')}. Resultado: Sin registro, Con registro o No concluyente (en las fuentes de verificación: Sin novedad o Con novedad). Cada fila "Con registro" crea un antecedente vigente; tipo_antecedente admite Penal, Judicial, Administrativo o Tránsito.</p>`}
     <label class="f" style="margin-top:12px"><span>Archivo CSV</span><input type="file" name="archivo" accept=".csv,text/csv,text/plain"></label>
     <div id="impprev"></div>`,
     onOpen:f=>{ f.archivo.addEventListener('change', async()=>{ const file=f.archivo.files[0]; const box=$('#impprev'); parsed=null; if(!file){ box.innerHTML=''; return; }
@@ -1944,7 +2007,10 @@ function migrarDatos(){
       delete p.antecedentes; n++; que.add('antecedentes trasladados a la sección Antecedentes');
     }
   }
-  if(!db.config.fuentes.some(f=>f.id===FUENTE_SIMIT.id || /simit/i.test(f.nombre))){ db.config.fuentes.push({...FUENTE_SIMIT}); n++; que.add('fuente SIMIT agregada'); }
+  if(!db.config.fuentes.some(f=>f.id===FUENTE_SIMIT.id || /simit/i.test(f.nombre))){ db.config.fuentes.push({...FUENTE_SIMIT, cat:'Antecedentes', ant:true}); n++; que.add('fuente SIMIT agregada'); }
+  for(const f of db.config.fuentes) if(!f.cat){ f.cat=CAT_BASE[f.id]||'Otras fuentes'; if(f.ant===undefined) f.ant=true; n++; que.add('fuentes existentes agrupadas'); }
+  let nf=0; for(const [id,nombre,cat,ant] of CATALOGO) if(!db.config.fuentes.some(f=>f.id===id)){ db.config.fuentes.push({id, nombre, cat, ant, obligatoria:false, activa:true}); nf++; }
+  if(nf){ n++; que.add(`${nf} fuentes agregadas al catálogo`); }
   if(n){ S.idx=null; S.cumpl.clear(); log('Actualización de la aplicación', '', `Versión ${VER}: ${n} ajuste(s) de datos: ${[...que].join('; ')}`); }
   return n;
 }

@@ -1,5 +1,5 @@
 :root{
-  --app-ver:"1.1.1";
+  --app-ver:"1.2.0";
   /* Paleta tomada del logotipo: verde #678E5F, amarillo #E0D57C, gris #4F4F4F */
   --logo-verde:#678E5F; --logo-amarillo:#E0D57C; --logo-gris:#4F4F4F;
   --paper:#F4F6F0; --surface:#FFFFFF; --sunk:#EEF1EA;
@@ -353,3 +353,5 @@ label.f > span.hint{font-weight:400}
 .verapp{margin-top:6px;opacity:.85}
 .lock-ver{margin:14px 0 0;font-size:12px;color:var(--ink-3);text-align:right}
 .avisover{position:sticky;top:0;z-index:80;background:#B0281F;color:#fff;padding:10px 16px;font-size:14px;line-height:1.4}
+.tag.warn{background:var(--warn-bg);border-color:transparent;color:var(--warn)}
+.cfg-cat{font-size:15px;margin:16px 0 8px;color:var(--ink-2);border-bottom:1px solid var(--rule-2);padding-bottom:4px}

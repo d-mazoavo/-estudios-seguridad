@@ -1,5 +1,5 @@
 /* Permite abrir la aplicación sin internet. Los datos se guardan aparte, cifrados, en el almacenamiento del navegador. */
-var VERSION = 'estudios-v1.1.1';
+var VERSION = 'estudios-v1.2.0';
 var FILES = ['./', 'index.html', 'config.js', 'manifest.webmanifest', 'app.css', 'diag.js',
   'firebase-app-compat.js', 'firebase-auth-compat.js', 'firebase-firestore-compat.js', 'jspdf.umd.min.js', 'jspdf.plugin.autotable.min.js',
   'nube.js', 'app.js', 'logo.png', 'logo-doc.png', 'icon-192.png', 'icon-512.png', 'icon-maskable-192.png', 'icon-maskable-512.png',
